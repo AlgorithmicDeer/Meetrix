@@ -1,4 +1,4 @@
-# Meetrix — Intelligent Meeting Intelligence
+# Meetrix — Meeting Intelligence
 
 > **Reclaim your team's time. Understand. Optimise. Execute.**
 
