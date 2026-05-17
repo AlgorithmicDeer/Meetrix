@@ -1,0 +1,54 @@
+# Secrets — NEVER commit these
+.env
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# LangGraph / LangChain
+checkpoints.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Node (frontend)
+node_modules/
+.next/
+out/
+dist/
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Made with Bob

@@ -1,0 +1,30 @@
+Sprint Retrospective — May 15, 2026
+Attendees: Alex Kim, Sarah Chen, Marcus Johnson, Raj Mehta, Lisa Nguyen
+
+[14:00] Alex Kim: Let's do the retro. I'll use the classic format: what went well, what didn't, what should we do differently. I'll take notes.
+
+[14:02] Sarah Chen: What went well — Raj's query optimisation shipped and it made a real difference. Also the standup format has been much tighter since we went to 15 minutes.
+
+[14:04] Marcus Johnson: Agreed on both. I'd add that the PR review turnaround improved. We averaged under 4 hours this sprint.
+
+[14:06] Lisa Nguyen: Design handoffs went more smoothly. The Figma annotations helped a lot.
+
+[14:08] Raj Mehta: One thing that didn't go well — we had two scope creep items mid-sprint that pushed the auth token work to next sprint. That hurt our velocity.
+
+[14:10] Alex Kim: Yeah, that's the main frustration point. How do we prevent it?
+
+[14:13] Sarah Chen: Stricter triage gate. Any new work that comes in mid-sprint goes straight to the backlog unless it's P0. We need to agree on that definition as a team.
+
+[14:15] Marcus Johnson: I support that. Let's define P0 as: production down, or customer contractually committed to a date.
+
+[14:17] Alex Kim: That works. Is everyone agreed?
+
+[14:18] All: Agreed.
+
+[14:19] Alex Kim: Great. So the action item is: Sarah documents the P0 definition and we add it to the team handbook by next Monday. Anything else?
+
+[14:21] Lisa Nguyen: I'd like to see more design review earlier in the sprint. When I see tickets in review I'm often finding issues that would be quick to fix at the design stage.
+
+[14:24] Marcus Johnson: Agreed, let's add a design check-in at sprint planning.
+
+[14:25] Alex Kim: Done, I'll add it to the planning agenda template. Okay, I think that covers it. We had a solid sprint overall — velocity was 43 points against a target of 40. Good work team.

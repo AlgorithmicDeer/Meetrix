@@ -1,0 +1,182 @@
+<orchestration_core>
+  <overview>
+    LangGraph is the orchestration layer for this system.
+    StateGraph replaces the custom AgentRegistry, SupervisorRouter, and PipelineOrchestrator.
+    MemorySaver (or SqliteSaver/RedisSaver) replaces SessionStore.
+    The compiled graph IS the orchestrator — it is built once in FastAPI lifespan and stored
+    on app.state.graph. Routes call graph.ainvoke() with a thread_id for session scoping.
+    For individual node and tool implementations, see 3_agent_design.xml.
+  </overview>
+
+  <docs_reference>
+    <url label="LangGraph: multi-agent supervisor tutorial">
+      https://langchain-ai.github.io/langgraph/tutorials/multi_agent/agent_supervisor/
+    </url>
+    <url label="LangGraph: StateGraph API reference">
+      https://langchain-ai.github.io/langgraph/reference/graphs/
+    </url>
+    <url label="LangGraph: persistence and checkpointing">
+      https://langchain-ai.github.io/langgraph/concepts/persistence/
+    </url>
+    <url label="LangGraph: how-tos (all patterns)">
+      https://langchain-ai.github.io/langgraph/how-tos/
+    </url>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+  </docs_reference>
+
+  <state_types>
+    <description>
+      State is a TypedDict that all nodes share. MessagesState is the built-in base —
+      it provides a "messages" key with an add_messages reducer (appends instead of overwrites).
+      Extend it only when routing metadata or additional fields are needed beyond messages.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify all imports and field definitions via MCP):
+      - MessagesState is the base — import path and internal field structure must come from MCP
+      - SupervisorState extends MessagesState with a routing field (e.g., next_agent: str)
+        set by the supervisor node and read by the routing function
+      - RoutedState extends MessagesState with a classification field (e.g., route_label: str)
+        set by a classifier node and read by the conditional edge function
+      - For parallel fan-out: use Annotated with a list reducer — verify reducer import via MCP
+      Only define the state extensions your topology actually requires.
+      File: backend/app/graph/state.py
+    </implementation_guidance>
+  </state_types>
+
+  <supervisor_pattern>
+    <description>
+      One supervisor node reads the conversation and decides which worker runs next.
+      Workers are either create_react_agent subgraphs or custom node functions.
+      Workers route back to the supervisor to enable multi-hop chaining.
+      When no more work is needed, the supervisor routes to END.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (all method names must be verified via MCP):
+      1. supervisor_node: async function, calls LLM once at temperature=0.0,
+         parses response to extract routing decision, returns {"next_agent": decision}
+      2. route_after_supervisor: pure function, reads next_agent from state,
+         returns worker name string or END — unknown values fall through to END (safety net)
+      3. build_graph():
+         - StateGraph(SupervisorState) — verify StateGraph import via MCP
+         - add_node("supervisor", supervisor_node)
+         - add_node("worker_x", create_worker_x()) — one per worker from implementation.md
+         - add_edge(START, "supervisor") — verify START import via MCP
+         - add_conditional_edges("supervisor", route_after_supervisor, routing_map)
+         - add_edge("worker_x", "supervisor") — workers loop back for multi-hop chaining
+         - compile(checkpointer=MemorySaver()) — verify MemorySaver import via MCP
+      4. WORKER_AGENTS list must exactly match all node names added to builder — keep in sync
+      5. Supervisor system prompt must name EXACT values the LLM should return — no ambiguity
+    </implementation_guidance>
+    <notes>
+      <note>WORKER_AGENTS list and the conditional_edges map must stay in sync — add both when adding a worker</note>
+      <note>MemorySaver is in-memory: sessions are lost on process restart — acceptable for dev, not production</note>
+      <note>Workers returning to supervisor enables multi-hop: supervisor can chain multiple workers per request</note>
+    </notes>
+  </supervisor_pattern>
+
+  <pipeline_pattern>
+    <description>
+      For fixed sequential workflows: linear edges between nodes, no supervisor needed.
+      Use when steps have strict dependencies and the sequence never changes at runtime.
+    </description>
+    <structure>START → node_a → node_b → node_c → END</structure>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify all method names and import paths via MCP):
+      - StateGraph([state_type]) — use MessagesState unless stages need additional fields
+      - add_node for each stage in sequence
+      - add_edge(START, "stage_a")
+      - add_edge("stage_a", "stage_b")
+      - ... one add_edge per stage transition ...
+      - add_edge("last_stage", END)
+      - compile(checkpointer=MemorySaver())
+      No conditional edges needed — pipeline never branches at runtime.
+      File: backend/app/graph/builder.py
+    </implementation_guidance>
+  </pipeline_pattern>
+
+  <session_management>
+    <description>
+      LangGraph's checkpointer handles session state automatically.
+      Pass thread_id in the config dict to scope memory to a session.
+      No separate SessionStore class is needed — MemorySaver IS the session store.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Pattern: Pass config={"configurable": {"thread_id": session_id}} on every ainvoke call.
+      Verify: the exact key names ("configurable", "thread_id") via MCP — these are the
+      LangGraph session scoping contract. Without thread_id, all users share one conversation.
+      Return: access the final response from the result messages list — verify result structure via MCP.
+    </implementation_guidance>
+    <production_note>
+      MemorySaver stores state in process memory — lost on restart, not multi-process safe.
+      For production, replace with a persistent checkpointer:
+      Query MCP: search_docs_by_lang_chain("LangGraph SqliteSaver PostgresSaver persistent checkpointer current")
+      - SqliteSaver: single-server persistence (no extra infra)
+      - PostgresSaver: multi-server / cloud deployment
+      See also: 7_best_practices.xml production_hardening section.
+    </production_note>
+  </session_management>
+
+  <fastapi_integration>
+    <description>
+      Build the graph once in the FastAPI lifespan and store it on app.state.
+      Routes retrieve it via request.app.state.graph — no global state, no DI container.
+    </description>
+    <implementation_guidance>
+      The lifespan function in main.py must perform in this order:
+      1. Check Ollama is reachable via httpx GET to OLLAMA_BASE_URL — log warning if not, do not crash
+      2. Warm up the default model — send a minimal test invocation to prevent cold-start on first request
+         <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+         Use MCP-confirmed message class and invoke method names for the warm-up call
+      3. Build and store the compiled graph: app.state.graph = build_graph()
+      4. Log a confirmation at each step
+
+      See 8_code_generation.xml fastapi_app_template for the stable FastAPI boilerplate structure.
+      The LangChain/LangGraph specific calls (warm-up, graph invocation) must use MCP-verified syntax.
+    </implementation_guidance>
+  </fastapi_integration>
+
+  <error_handling>
+    <description>
+      Node functions should not raise unhandled exceptions. Wrap risky operations in
+      try/except and return error messages so the graph continues routing.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Pattern: Every node that calls the LLM or external services must:
+      - Wrap the entire body in try/except Exception
+      - On success: return {"messages": [AIMessage(content=result)]}
+      - On error: log with logger.error(), return {"messages": [AIMessage(content=f"Error: {str(e)}")]}
+      - Never let an exception propagate out of a node — the graph will crash
+
+      Verify: AIMessage import path and constructor signature via MCP before implementing.
+    </implementation_guidance>
+  </error_handling>
+
+  <naming_conventions>
+    <convention category="nodes">
+      <pattern>snake_case — verb or domain_role: supervisor_node, summarise_node, research_agent</pattern>
+      <note>create_react_agent factory functions named create_X_agent(); node name passed to add_node() is the graph edge label</note>
+    </convention>
+    <convention category="tools">
+      <pattern>snake_case verb_object: fetch_web_content, validate_schema, store_result</pattern>
+    </convention>
+    <convention category="graph_builders">
+      <pattern>build_X_graph() factory functions; compiled result stored in app.state.graph</pattern>
+    </convention>
+    <convention category="state">
+      <pattern>PascalCase TypedDict/dataclass: SupervisorState, PipelineState, RoutedState</pattern>
+    </convention>
+  </naming_conventions>
+
+</orchestration_core>
+
+<!-- Made with Bob -->

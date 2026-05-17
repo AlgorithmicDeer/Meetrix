@@ -1,0 +1,35 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux: reach Ollama on host
+    volumes:
+      - ./backend:/app          # Live reload — changes reflect without rebuild
+      - backend-data:/app/data  # Persist SQLite database
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app         # Live reload
+      - /app/node_modules       # Preserve container node_modules
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+
+# Made with Bob

@@ -1,0 +1,298 @@
+<implementation_md_format>
+  <overview>
+    This file defines the sample structure (not mandatory to follow) and content requirements for implementation.md.
+    Generate this file ONLY after the satisfaction gate in phase 8 of the questioning protocol
+    is passed. This document is the single source of truth for multi-agent-system-builder mode.
+    It must be complete enough that no additional questions are needed during generation.
+  </overview>
+
+  <file_location>implementation.md (project root)</file_location>
+
+  <required_sections>
+
+    <section name="system_overview" order="1">
+      <heading>## System Overview</heading>
+      <required_content>
+        <item>One paragraph: what the system does and who uses it</item>
+        <item>Primary use cases (3–5 bullet points)</item>
+        <item>What the system explicitly does NOT do (out of scope)</item>
+        <item>High-level architecture diagram in Mermaid (agent topology)</item>
+      </required_content>
+      <mermaid_diagram_note>
+        Use graph TD or flowchart. Show agents as nodes, communication as edges.
+        Label edges with data type or protocol (e.g., "JSON: UserRequest").
+        Avoid double quotes inside brackets — use single quotes in Mermaid labels.
+      </mermaid_diagram_note>
+    </section>
+
+    <section name="agent_inventory" order="2">
+      <heading>## Agent Inventory</heading>
+      <required_content>
+        One entry per agent in the following format:
+      </required_content>
+      <agent_entry_format><![CDATA[
+### `agent_name`
+
+| Field | Value |
+|-------|-------|
+| Role | What this agent is responsible for |
+| Model | model-name (e.g., llama3.2 — bare Ollama name, no prefix) |
+| Tools | tool_one, tool_two (comma-separated) |
+| Receives | Input type and format |
+| Returns | Output type and format |
+| Style | react / custom — react = create_react_agent (tool-using, autonomous); custom = async node function (single LLM call, deterministic). See 3_agent_design.xml two_node_types. |
+
+**Responsibilities:**
+- Specific responsibility 1
+- Specific responsibility 2
+
+**NOT responsible for:**
+- Explicit exclusion 1
+- Explicit exclusion 2
+
+**System Prompt Summary:**
+Brief description of the agent's persona, constraints, and output format expectations.
+      ]]></agent_entry_format>
+    </section>
+
+    <section name="orchestration_topology" order="3">
+      <heading>## Orchestration Topology</heading>
+      <required_content>
+        <item>Pattern: supervisor-worker / pipeline / peer-to-peer / swarm</item>
+        <item>Entry point: which agent receives the first request</item>
+        <item>Routing logic: how requests are directed to the correct agent</item>
+        <item>Communication: how agents pass results to each other</item>
+        <item>Sequence diagram in Mermaid for the primary workflow</item>
+      </required_content>
+      <sequence_diagram_note>
+        Use sequenceDiagram. Show actor/user, all agents involved, and external systems.
+        Show both the happy path and at least one error path.
+      </sequence_diagram_note>
+    </section>
+
+    <section name="data_flow" order="4">
+      <heading>## Data Flow and Contracts</heading>
+      <required_content>
+        <item>Pydantic model definitions (or equivalent schema) for all data passed between agents</item>
+        <item>Session/context structure: what is stored, how it is passed</item>
+        <item>External data sources: what APIs or databases agents call</item>
+        <item>Data validation responsibility: which component validates at each boundary</item>
+      </required_content>
+      <pydantic_format><![CDATA[
+```python
+class AgentRequest(BaseModel):
+    session_id: str
+    user_message: str
+    context: dict[str, Any] = {}
+
+class AgentResponse(BaseModel):
+    agent_id: str
+    content: str
+    metadata: dict[str, Any] = {}
+    error: str | None = None
+```
+      ]]></pydantic_format>
+    </section>
+
+    <section name="api_design" order="5">
+      <heading>## API Design</heading>
+      <required_content>
+        One entry per endpoint:
+      </required_content>
+      <endpoint_format><![CDATA[
+### `POST /api/v1/chat`
+
+| Field | Value |
+|-------|-------|
+| Purpose | Send a message to the multi-agent system |
+| Auth | Bearer token / API key / none |
+| Request | `ChatRequest` Pydantic model |
+| Response | `ChatResponse` Pydantic model |
+| Errors | 400 Bad Request, 401 Unauthorized, 503 Agent Unavailable |
+| Streaming | Yes / No |
+      ]]></endpoint_format>
+      <also_include>
+        <item>WebSocket endpoints if streaming is required</item>
+        <item>Health check endpoint: GET /health</item>
+        <item>Authentication mechanism and where credentials come from</item>
+      </also_include>
+    </section>
+
+    <section name="provider_configuration" order="6">
+      <heading>## Provider Configuration</heading>
+      <required_content>
+        <item>Ollama base URL (default: http://localhost:11434)</item>
+        <item>Model assignments: which agent uses which model</item>
+        <item>Ollama generation parameters per agent (temperature, num_predict, etc.)</item>
+        <item>Environment variables table</item>
+      </required_content>
+      <env_table_format><![CDATA[
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| OLLAMA_BASE_URL | No | http://localhost:11434 | Ollama server URL |
+| DEFAULT_MODEL | No | llama3.2 | Default Ollama model (bare name, no prefix) |
+| LLM_TEMPERATURE | No | 0.7 | Default LLM temperature |
+| OLLAMA_NUM_CTX | No | 4096 | Context window tokens (Ollama default 2048 is too small) |
+| OLLAMA_KEEP_ALIVE | No | 5m | How long to keep model loaded between calls |
+| API_KEY | No | (empty) | API key for auth — leave empty to disable |
+| LOG_LEVEL | No | INFO | Logging verbosity |
+      ]]></env_table_format>
+      <model_assignment_note>
+        Document which agent uses which model. Example: supervisor uses phi4:mini (fast, low RAM);
+        research agent uses llama3.2 (better reasoning). Add one config field per agent:
+        SUPERVISOR_MODEL=phi4:mini, RESEARCH_MODEL=llama3.2, etc.
+        Bare model names only — no "ollama/" prefix.
+      </model_assignment_note>
+    </section>
+
+    <section name="project_structure" order="7">
+      <heading>## Project Structure</heading>
+      <required_content>
+        Full directory tree of files to be generated, with a one-line comment on each file.
+      </required_content>
+      <format><![CDATA[
+```
+project_root/
+├── .bob/                          # Bob configuration (already exists)
+├── backend/
+│   ├── app/
+│   │   ├── main.py                # FastAPI app entry point, graph compiled in lifespan
+│   │   ├── config.py              # Pydantic settings, env var loading
+│   │   ├── llm.py                 # get_llm() factory — ChatOllama instance per call
+│   │   ├── api/
+│   │   │   └── v1/
+│   │   │       └── routes.py      # API routes — call graph.ainvoke() with thread_id
+│   │   ├── graph/
+│   │   │   ├── state.py           # State TypedDict classes (SupervisorState, etc.)
+│   │   │   ├── nodes.py           # Graph nodes — one per agent from Agent Inventory
+│   │   │   └── builder.py         # StateGraph construction + compile(checkpointer=MemorySaver())
+│   │   ├── tools/
+│   │   │   └── domain_tools.py    # @tool decorated functions (one file per tool domain)
+│   │   └── models/
+│   │       └── schemas.py         # API Pydantic models (ChatRequest, ChatResponse, etc.)
+│   ├── tests/
+│   │   ├── conftest.py            # Shared fixtures (mock_llm)
+│   │   └── test_graph.py          # Node unit tests using patched LLM
+│   ├── pyproject.toml             # pytest config — asyncio_mode = "auto"
+│   └── requirements.txt
+├── frontend/                      # React + Vite (generated separately)
+├── backend/
+│   ├── Dockerfile                 # Python 3.11-slim container — builds backend
+│   ├── .dockerignore              # Excludes .env, __pycache__, .venv
+│   ...
+├── frontend/
+│   ├── Dockerfile                 # Node 20-slim container — builds frontend
+│   ├── .dockerignore              # Excludes node_modules, .env
+│   ...
+├── docker-compose.yml             # Orchestrates backend + frontend — single docker compose up
+├── docker-compose.yml             # Start: docker compose up --build
+└── implementation.md              # This file
+```
+      ]]></format>
+    </section>
+
+    <section name="error_handling_and_failure_modes" order="8">
+      <heading>## Error Handling and Failure Modes</heading>
+      <required_content>
+        <item>Retry policy: max retries, backoff strategy for each failure type</item>
+        <item>Timeout policy: per-agent and per-workflow timeouts</item>
+        <item>Fallback behaviour: what happens when an agent fails</item>
+        <item>Ollama failure handling: what the system does if Ollama is unreachable</item>
+        <item>Error response format: what the API returns on failure</item>
+      </required_content>
+    </section>
+
+    <section name="open_decisions" order="9">
+      <heading>## Open Decisions</heading>
+      <purpose>
+        List any design decisions that were deliberately deferred or left configurable.
+        This section may be empty if everything was fully decided.
+      </purpose>
+      <format><![CDATA[
+| Decision | Options Considered | Chosen Approach | Reason |
+|----------|-------------------|-----------------|--------|
+| Session persistence | In-memory vs Redis | In-memory for MVP | Simplicity |
+      ]]></format>
+    </section>
+
+  </required_sections>
+
+  <generation_rules>
+    <rule priority="critical">
+      Do NOT generate implementation.md until the satisfaction gate in phase 8 of
+      1_questioning_protocol.xml has been explicitly passed by the user.
+    </rule>
+    <rule priority="critical">
+      Every required section must be present and populated. No placeholder text such as
+      "TBD", "to be determined", or "will figure out later". If something is truly
+      configurable, document it as a config value with a default.
+    </rule>
+    <rule priority="critical">
+      The required_sections above are the MINIMUM structured summary — they ensure
+      multi-agent-system-builder mode has machine-readable anchors to generate from.
+      They are NOT the ceiling. Write as much detail as you have clarity on.
+      After the required sections, continue writing freely:
+      anything that captures the full picture of what was discussed.
+      A richer implementation.md means less guesswork during generation.
+    </rule>
+    <rule priority="high">
+      Mermaid diagrams must be valid. Do not use double quotes inside square brackets.
+      Use single quotes for labels. Test syntax mentally before writing.
+    </rule>
+    <rule priority="high">
+      Pydantic models in the Data Flow section must match the actual models
+      that will be generated in the backend. This document is the contract.
+    </rule>
+    <rule priority="medium">
+      After writing implementation.md, tell the user:
+      "implementation.md is ready."
+      Do not switch modes automatically.
+    </rule>
+  </generation_rules>
+
+  <extended_content_guidance>
+    These are sections you SHOULD add after the required sections if the architecture
+    warrants them. They are not mandatory but make the implementation.md significantly
+    more useful. Write them in whatever format best captures the detail.
+
+    <suggested_section name="architectural_decisions">
+      What was considered and why it was accepted or rejected. Example:
+      "We considered event sourcing for the meeting data pipeline but chose batch
+      processing because real-time latency is not a requirement for this system."
+      This prevents future developers from re-litigating closed decisions.
+    </suggested_section>
+
+    <suggested_section name="agent_prompt_design">
+      For each agent, the reasoning behind its system prompt: what constraints were
+      imposed, what output format was chosen and why, what edge cases the prompt guards
+      against. The actual prompt text if it is stable enough to write now.
+    </suggested_section>
+
+    <suggested_section name="data_pipeline_detail">
+      Beyond the Pydantic models: how data flows through the full pipeline end-to-end,
+      what transformations happen at each stage, where data is persisted vs. passed
+      in-memory, and what happens to data that fails validation at each boundary.
+    </suggested_section>
+
+    <suggested_section name="frontend_requirements">
+      If a dashboard or UI is part of the system: component breakdown, what data each
+      component needs from the API, real-time vs. polling requirements, key interactions
+      the user must be able to perform, and any specific visual behaviour (charts, maps,
+      live updates) that affects the backend contract.
+    </suggested_section>
+
+    <suggested_section name="phased_delivery">
+      If the full system is too large for one sprint: what is the MVP that proves the
+      core value, what comes in phase 2, and what is deliberately out of scope for now.
+      Helps the builder know what to implement first and what to stub.
+    </suggested_section>
+
+    <suggested_section name="open_questions_and_risks">
+      Beyond the Open Decisions table: deeper risks, assumptions that have not been
+      validated, external dependencies that could block progress, and known unknowns.
+    </suggested_section>
+  </extended_content_guidance>
+
+</implementation_md_format>
+
+<!-- Made with Bob -->

@@ -1,0 +1,16 @@
+Engineering Standup — May 6, 2026
+Attendees: Alex Kim, Sarah Chen, Marcus Johnson, Raj Mehta
+
+[09:00] Alex Kim: Quick standup. Yesterday, blockers, today. Sarah, you go first.
+
+[09:01] Sarah Chen: Yesterday I finished the API rate-limiting PR and got it reviewed. No blockers. Today I'm picking up the auth token refresh bug we triaged on Monday.
+
+[09:02] Marcus Johnson: Yesterday I worked on the contractor cost model, almost done. Today finishing that and then back to the backend service refactor. No blockers.
+
+[09:03] Raj Mehta: Yesterday I got the reporting query optimisation deployed to staging. Seeing about a 40% improvement on the slow queries. No blockers. Today I'm writing the migration runbook.
+
+[09:04] Alex Kim: Nice on the query perf, Raj. Yesterday I reviewed three PRs and wrote the test cases for the new authentication flow. Today I'm continuing that and also syncing with the frontend team at 2pm. One blocker — I need someone to review the database migration plan before we can merge. Marcus, can you take a look?
+
+[09:05] Marcus Johnson: Yeah, I'll get to it before lunch.
+
+[09:06] Alex Kim: Perfect. That's it, everyone. Let's keep it moving.

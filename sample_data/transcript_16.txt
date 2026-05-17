@@ -1,0 +1,32 @@
+Sprint Demo — May 21, 2026
+Attendees: Alex Kim, Sarah Chen, Marcus Johnson, Priya Patel, Diana Ross, Tom Wright, Lisa Nguyen, Raj Mehta
+
+[14:00] Alex Kim: Welcome to the sprint demo. We shipped five features this sprint. I'll hand off to the team to walk through each one.
+
+[14:03] Marcus Johnson: First up, API v2 authentication. We've completed the OAuth2 integration for the new token flow. Here's a quick demo — [shares screen] — you can see the refresh cycle is now fully transparent to clients. Response time is down from 340ms to 95ms.
+
+[14:07] Diana Ross: That's a significant improvement. Is this production-ready?
+
+[14:09] Marcus Johnson: Yes, we're waiting on the migration guide to be reviewed, but the code is stable.
+
+[14:11] Lisa Nguyen: Next, the search improvements. We redesigned the filter UI based on the user feedback from last quarter. [shares Figma prototype] — the key change is the persistent filter bar and the autocomplete suggestions.
+
+[14:15] Priya Patel: Users are going to love that. The autocomplete was number one on the feedback list.
+
+[14:17] Raj Mehta: I can confirm — the backend changes to support autocomplete are deployed. Index rebuild took 4 hours, now running in under 200ms per query.
+
+[14:20] Sarah Chen: Next, the auth token refresh bug fix. This was a high-priority item from last sprint. The root cause was a race condition in the token rotation logic. Fixed and tested with load testing up to 2000 concurrent users.
+
+[14:24] Tom Wright: The infra side looks good too — I deployed the additional API node yesterday and we're seeing even load distribution.
+
+[14:27] Alex Kim: Great work everyone. Diana, are you accepting all five items?
+
+[14:29] Diana Ross: Yes, all accepted. This is a strong sprint. The API v2 work especially is going to unblock the Meridian and Apex client accounts.
+
+[14:31] Alex Kim: Action items: Lisa to update the release notes and changelog by end of day. Sarah to do a final sign-off on the auth fix documentation. We're targeting production deployment on May 28th — is everyone comfortable with that date?
+
+[14:34] All: Yes.
+
+[14:35] Diana Ross: Perfect. Decided: we ship to production on May 28. I'll communicate this to the client accounts this afternoon.
+
+[14:37] Alex Kim: Thanks everyone. Great sprint.

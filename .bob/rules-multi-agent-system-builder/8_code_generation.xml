@@ -1,0 +1,650 @@
+<code_generation_patterns>
+  <overview>
+    Concrete code templates and FastAPI patterns for generating the multi-agent system backend.
+    Stack: FastAPI + LangGraph + ChatOllama (langchain-ollama).
+    Use these templates as the starting point for each generated file.
+    Customise to match implementation.md exactly — don't copy templates verbatim.
+  </overview>
+
+  <fastapi_app_template>
+    <description>Main FastAPI application entry point. Graph is built once in lifespan and stored on app.state.</description>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <template><![CDATA[
+# backend/app/main.py
+import logging
+import sys
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import httpx
+
+from app.config import settings
+from app.api.v1.routes import router as v1_router
+from app.graph.builder import build_graph
+
+logger = logging.getLogger(__name__)
+
+
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+
+    # Check Ollama connectivity
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.get(settings.ollama_base_url)
+            if r.status_code == 200:
+                logger.info("Ollama connected at %s", settings.ollama_base_url)
+            else:
+                logger.warning("Ollama responded %d — agents may fail", r.status_code)
+        except Exception:
+            logger.warning(
+                "Ollama unreachable at %s — start with 'ollama serve'",
+                settings.ollama_base_url,
+            )
+
+    # Warm up default model (prevents 30–90s cold-start on first request)
+    from langchain_core.messages import HumanMessage
+    from app.llm import get_llm
+    try:
+        await get_llm().ainvoke([HumanMessage(content="ping")])
+        logger.info("Model pre-loaded: %s", settings.default_model)
+    except Exception as e:
+        logger.warning("Model warm-up failed (first request will be slow): %s", e)
+
+    # Build and store the compiled graph
+    app.state.graph = build_graph()
+    logger.info("Graph compiled and ready")
+
+    yield
+    logger.info("Shutting down")
+
+
+app = FastAPI(
+    title="Multi-Agent System",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(v1_router, prefix="/api/v1")
+
+
+@app.exception_handler(Exception)
+async def generic_error_handler(request, exc: Exception):
+    logger.error("Unhandled exception: %s", str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error. Check server logs."},
+    )
+    ]]></template>
+  </fastapi_app_template>
+
+  <api_routes_template>
+    <description>FastAPI route definitions. Routes call graph.ainvoke() with thread_id for session scoping.</description>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <template><![CDATA[
+# backend/app/api/v1/routes.py
+import logging
+from fastapi import APIRouter, HTTPException, Request
+from langchain_core.messages import HumanMessage
+import httpx
+
+from app.models.schemas import ChatRequest, ChatResponse
+from app.config import settings
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest, req: Request) -> ChatResponse:
+    """Send a message to the multi-agent system."""
+    graph = req.app.state.graph
+    config = {"configurable": {"thread_id": request.session_id}}
+    try:
+        result = await graph.ainvoke(
+            {"messages": [HumanMessage(content=request.message)]},
+            config=config,
+        )
+        content = result["messages"][-1].content
+        return ChatResponse(session_id=request.session_id, content=content)
+    except Exception as e:
+        logger.error("Graph failed for session %s: %s", request.session_id, str(e))
+        raise HTTPException(status_code=500, detail="Agent system error. Check server logs.")
+
+
+@router.get("/health")
+async def health_check():
+    """Check system health and Ollama connectivity."""
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.get(settings.ollama_base_url)
+            ollama_ok = r.status_code == 200
+        except Exception:
+            ollama_ok = False
+    return {
+        "status": "ok" if ollama_ok else "degraded",
+        "ollama": "connected" if ollama_ok else "unreachable",
+        "ollama_url": settings.ollama_base_url,
+    }
+    ]]></template>
+  </api_routes_template>
+
+  <config_template>
+    <description>Pydantic settings class. Customise fields to match implementation.md env table.</description>
+    <template><![CDATA[
+# backend/app/config.py
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    # Ollama connection
+    ollama_base_url: str = "http://localhost:11434"
+    default_model: str = "llama3.2"
+    llm_temperature: float = 0.7
+
+    # Per-agent model overrides (add one per agent from implementation.md)
+    # supervisor_model: str = "phi4:mini"
+    # research_model: str = "llama3.2"
+    # classifier_model: str = "phi4:mini"
+
+    # Ollama performance — tune to your hardware
+    ollama_num_ctx: int = 4096      # Context window tokens (Ollama default 2048 is too small)
+    ollama_keep_alive: str = "5m"   # How long to keep model in memory between calls
+
+    # API security
+    api_key: str = ""  # Empty string = no auth required
+
+    # Application
+    log_level: str = "INFO"
+    environment: str = "development"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
+
+
+settings = Settings()
+    ]]></template>
+  </config_template>
+
+  <llm_factory_template>
+    <description>
+      ChatOllama factory function. Lives in backend/app/llm.py.
+      This is the ONLY place in the codebase that constructs ChatOllama.
+      All graph nodes call get_llm() — never instantiate ChatOllama directly in nodes.
+    </description>
+    <mcp_note>Phase 0 Step 4 covers ChatOllama parameters — use confirmed results, do not re-query.</mcp_note>
+    <structural_pattern>
+      File: backend/app/llm.py
+      - Import: ChatOllama from langchain_ollama  [verify exact import path via MCP]
+      - Import: settings from app.config
+      - Function signature: def get_llm(model: str | None = None, temperature: float | None = None) -> ChatOllama
+      - Return: ChatOllama(
+            model = model or settings.default_model,
+            base_url = settings.ollama_base_url,
+            temperature = temperature if temperature is not None else settings.llm_temperature,
+            [CONTEXT_WINDOW_PARAM] = settings.ollama_num_ctx,    [confirm param name via MCP]
+            [KEEP_ALIVE_PARAM] = settings.ollama_keep_alive,     [confirm param name via MCP]
+        )
+    </structural_pattern>
+  </llm_factory_template>
+
+  <graph_state_template>
+    <description>
+      State type definitions for the graph. MessagesState covers most cases.
+      Extend only when routing metadata or custom fields are needed.
+    </description>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <structural_pattern>
+      File: backend/app/graph/state.py
+
+      from [MCP-CONFIRMED-IMPORT] import MessagesState    [verify import path via MCP]
+
+      For supervisor pattern — adds routing decision field:
+        class SupervisorState(MessagesState):
+            next_agent: str      [set by supervisor_node, read by route_after_supervisor()]
+
+      For classifier/conditional routing:
+        class RoutedState(MessagesState):
+            route_label: str     [set by classifier node, read by routing function]
+
+      Only define the state classes that implementation.md's graph pattern actually requires.
+      Use plain MessagesState directly if no extra fields are needed.
+    </structural_pattern>
+  </graph_state_template>
+
+  <schemas_template>
+    <description>Pydantic schemas for the API boundary. LangGraph handles internal state — only API models go here.</description>
+    <template><![CDATA[
+# backend/app/models/schemas.py
+from typing import Any
+from pydantic import BaseModel, Field
+
+
+# --- Request Models ---
+
+class ChatRequest(BaseModel):
+    session_id: str = Field(..., description="Unique session identifier — scopes conversation history")
+    message: str = Field(..., min_length=1, description="User message")
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- Response Models ---
+
+class ChatResponse(BaseModel):
+    session_id: str
+    content: str
+
+
+# --- Task Models (for long-running async workflows) ---
+
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str  # running
+
+
+class TaskResult(BaseModel):
+    task_id: str
+    status: str  # running | completed | failed
+    result: str | None = None
+    error: str | None = None
+    ]]></template>
+  </schemas_template>
+
+  <requirements_template>
+    <description>Python dependencies. LangGraph stack — add project-specific dependencies below the base set.</description>
+    <version_note>
+      The version pins below were correct at time of writing but will age.
+      BEFORE generating requirements.txt, check PyPI for latest stable versions:
+        langchain-core: https://pypi.org/project/langchain-core/
+        langchain-ollama: https://pypi.org/project/langchain-ollama/
+        langgraph: https://pypi.org/project/langgraph/
+      Use >= version pins (not ==) so patch releases install automatically.
+      Cross-reference with the versions confirmed by MCP queries during Phase 0 research.
+    </version_note>
+    <template><![CDATA[
+# backend/requirements.txt
+fastapi[standard]>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+
+# LangGraph + LangChain + Ollama
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+langgraph>=0.2.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Add project-specific dependencies below:
+    ]]></template>
+  </requirements_template>
+
+  <backend_dockerfile_template>
+    <description>Backend Dockerfile. Copies requirements.txt first for layer caching, then copies source. Runs as non-root user.</description>
+    <template><![CDATA[
+# backend/Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install deps first (cached unless requirements.txt changes)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ]]></template>
+  </backend_dockerfile_template>
+
+  <frontend_dockerfile_template>
+    <description>Frontend Dockerfile for development. Node 20 slim. Installs deps, runs Vite dev server bound to 0.0.0.0 so Docker port mapping works.</description>
+    <template><![CDATA[
+# frontend/Dockerfile
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    ]]></template>
+  </frontend_dockerfile_template>
+
+  <docker_compose_template>
+    <description>Root docker-compose.yml. Single command starts backend + frontend. Ollama runs on the host — containers reach it via host.docker.internal.</description>
+    <template><![CDATA[
+# docker-compose.yml (project root)
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux: reach Ollama on host
+    volumes:
+      - ./backend:/app          # Live reload — changes reflect without rebuild
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app         # Live reload
+      - /app/node_modules       # Preserve container node_modules
+    restart: unless-stopped
+    ]]></template>
+    <note>
+      On macOS and Windows: host.docker.internal resolves automatically.
+      On Linux: the extra_hosts entry maps it to the host gateway IP.
+      OLLAMA_BASE_URL in backend/.env must be: http://host.docker.internal:11434
+    </note>
+  </docker_compose_template>
+
+  <dockerignore_template>
+    <description>.dockerignore files — keeps images small, prevents secrets leaking into layers.</description>
+    <template><![CDATA[
+# backend/.dockerignore  AND  frontend/.dockerignore
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+.git/
+.gitignore
+*.md
+tests/
+.pytest_cache/
+.coverage
+dist/
+build/
+    ]]></template>
+  </dockerignore_template>
+
+  <start_instructions_template>
+    <description>How to start the project. No shell scripts needed — Docker handles everything.</description>
+    <instructions><![CDATA[
+# Starting the project (include in README.md):
+
+## Prerequisites
+- Docker Desktop (or Docker Engine + Compose plugin) installed
+- Ollama installed on your host machine: https://ollama.ai/
+- Required models pulled: ollama pull llama3.2 (and others from implementation.md)
+
+## Start everything
+docker compose up --build
+
+# Backend:  http://localhost:8000
+# API docs: http://localhost:8000/docs
+# Frontend: http://localhost:5173
+
+## First time only — create backend .env
+cp backend/.env.example backend/.env
+# Edit backend/.env — set OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+## Stop everything
+docker compose down
+
+## Rebuild after dependency changes
+docker compose up --build --force-recreate
+    ]]></instructions>
+  </start_instructions_template>
+
+  <env_example_template>
+    <description>.env.example — all variables from config.py with placeholder values.</description>
+    <template><![CDATA[
+# backend/.env.example
+# Copy this file to .env and fill in your values
+
+# Ollama connection
+# Local dev (outside Docker): http://localhost:11434
+# Inside Docker containers:   http://host.docker.internal:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+DEFAULT_MODEL=llama3.2
+LLM_TEMPERATURE=0.7
+
+# Per-agent model overrides (uncomment and set to match your hardware tier)
+# SUPERVISOR_MODEL=phi4:mini
+# RESEARCH_MODEL=llama3.2
+# CLASSIFIER_MODEL=phi4:mini
+
+# Ollama performance (tune to your hardware — see 4_provider_ollama.xml hardware_requirements)
+OLLAMA_NUM_CTX=4096       # Token context window (Ollama default 2048 is too small for agents)
+OLLAMA_KEEP_ALIVE=5m      # How long to keep model loaded between requests (-1 = forever)
+
+# API security (leave empty to disable authentication)
+API_KEY=
+
+# Application
+LOG_LEVEL=INFO
+ENVIRONMENT=development
+    ]]></template>
+  </env_example_template>
+
+  <gitignore_template>
+    <description>Root .gitignore — prevents secrets and build artifacts from being committed.</description>
+    <template><![CDATA[
+# Secrets — NEVER commit these
+.env
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# LangGraph / LangChain
+checkpoints.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+    ]]></template>
+  </gitignore_template>
+
+  <conftest_template>
+    <description>Shared pytest fixtures. Mock LLM is injected into nodes via patch.</description>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <template><![CDATA[
+# backend/tests/conftest.py
+import pytest
+from unittest.mock import AsyncMock
+from langchain_core.messages import AIMessage
+
+
+@pytest.fixture
+def mock_llm():
+    """Mock ChatOllama that returns a configurable response. Patch app.graph.nodes.get_llm."""
+    llm = AsyncMock()
+    llm.ainvoke.return_value = AIMessage(content="Mock response content")
+    return llm
+    ]]></template>
+  </conftest_template>
+
+  <pyproject_template>
+    <description>pyproject.toml — required for pytest-asyncio to run async tests correctly.</description>
+    <template><![CDATA[
+# backend/pyproject.toml
+[tool.pytest.ini_options]
+# REQUIRED: without this, async test functions silently pass without running
+asyncio_mode = "auto"
+testpaths = ["tests"]
+    ]]></template>
+    <note>Without asyncio_mode = "auto", async test functions are collected but never actually awaited — they appear to pass but do not run. This is a silent failure mode.</note>
+  </pyproject_template>
+
+  <readme_template>
+    <description>Project README — generated once, then maintained manually.</description>
+    <template><![CDATA[
+# [Project Name] — Multi-Agent System
+
+Brief description of what this system does.
+
+## Prerequisites
+
+- [Docker Desktop](https://docs.docker.com/get-docker/) (or Docker Engine + Compose plugin)
+- [Ollama](https://ollama.ai/) installed on your host machine
+
+## Setup
+
+```bash
+# 1. Clone and enter the project
+git clone <repo-url> && cd <project-name>
+
+# 2. Pull required Ollama models on your host
+ollama pull llama3.2
+# (add one line per model from implementation.md)
+
+# 3. Configure environment
+cp backend/.env.example backend/.env
+# Edit backend/.env — set OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+## Running
+
+```bash
+docker compose up --build
+```
+
+Backend: http://localhost:8000
+API docs: http://localhost:8000/docs
+Frontend: http://localhost:5173
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| OLLAMA_BASE_URL | http://localhost:11434 | Ollama server URL |
+| DEFAULT_MODEL | llama3.2 | Default model for agents |
+| LLM_TEMPERATURE | 0.7 | Default LLM temperature |
+| OLLAMA_NUM_CTX | 4096 | Context window tokens |
+| OLLAMA_KEEP_ALIVE | 5m | Time to keep model loaded |
+| API_KEY | (empty) | Request auth key (empty = disabled) |
+| LOG_LEVEL | INFO | Logging verbosity |
+
+## How to Add a New Agent Node
+
+1. Add a tool (if needed): `backend/app/tools/your_tools.py` with `@tool` decorated functions
+2. Add a node in `backend/app/graph/nodes.py`:
+   - ReAct agent: `def create_your_agent(): return create_react_agent(get_llm(...), tools=[...])`
+   - Custom node: `async def your_node(state: SupervisorState) -> dict:`
+3. Register in `backend/app/graph/builder.py`:
+   - `builder.add_node("your_agent", create_your_agent())` or `builder.add_node("your_node", your_node)`
+   - Add it to `WORKER_AGENTS` list and the `add_conditional_edges` routing map
+4. Add a model override to `config.py`: `your_agent_model: str = "llama3.2"`
+5. Add `YOUR_AGENT_MODEL=llama3.2` to `.env.example`
+
+## Running Tests
+
+```bash
+docker compose exec backend pytest
+```
+    ]]></template>
+  </readme_template>
+
+  <production_readiness_checklist>
+    <description>
+      Checklist to present to the user after all files are generated.
+      Group into three tiers so the user knows what to do now vs. later.
+    </description>
+    <tier name="required_before_first_run">
+      <item>Docker Desktop (or Docker Engine) installed and running</item>
+      <item>Ollama installed on host and required models pulled (ollama pull MODEL_NAME)</item>
+      <item>backend/.env created from .env.example with OLLAMA_BASE_URL=http://host.docker.internal:11434</item>
+      <item>docker compose up --build completes without errors</item>
+      <item>Backend container starts: check docker compose logs backend</item>
+      <item>`GET /health` returns `"status": "ok"` with Ollama connected</item>
+    </tier>
+    <tier name="recommended_before_sharing">
+      <item>All generated tests pass (`pytest` from backend/)</item>
+      <item>`.env` is listed in `.gitignore` and NOT committed to git</item>
+      <item>API key set in `.env` if the API will be accessible to others</item>
+      <item>docker compose up --build from fresh clone works without manual steps</item>
+      <item>Tried a full conversation round-trip via POST /chat and got a valid response</item>
+      <item>Tested session persistence: two messages in the same session_id show correct context</item>
+    </tier>
+    <tier name="before_production_deployment">
+      <item>MemorySaver replaced with SqliteSaver or PostgresSaver (see 7_best_practices.xml PH-1)</item>
+      <item>Running uvicorn with 1 worker only (MemorySaver is not multi-process safe)</item>
+      <item>Rate limiting configured for your expected request volume (PH-3)</item>
+      <item>Graceful shutdown timeout set to &gt; max LLM timeout (PH-6)</item>
+      <item>Health check returns HTTP 503 when graph is not compiled (PH-7)</item>
+      <item>LangSmith tracing enabled (optional) for LLM call observability (PH-4)</item>
+      <item>CORS origins restricted to your actual frontend domain (not localhost)</item>
+    </tier>
+  </production_readiness_checklist>
+
+  <generation_checklist>
+    <step order="1">Generate config.py and models/schemas.py first (no dependencies)</step>
+    <step order="2">Generate app/llm.py (get_llm factory — depends on config.py)</step>
+    <step order="3">Generate app/tools/*.py (@tool functions from implementation.md Agent Inventory)</step>
+    <step order="4">Generate app/graph/state.py, app/graph/nodes.py, app/graph/builder.py (depend on llm.py and tools/)</step>
+    <step order="5">Generate api/v1/routes.py and main.py (depend on graph/builder.py)</step>
+    <step order="6">Generate workflow files if implementation.md defines additional multi-step workflows</step>
+    <step order="7">Generate backend/Dockerfile, frontend/Dockerfile, docker-compose.yml, backend/.dockerignore, frontend/.dockerignore, backend/.env.example, .gitignore</step>
+    <step order="8">Generate backend/requirements.txt, backend/pyproject.toml, backend/tests/conftest.py, backend/tests/test_graph.py stub</step>
+    <step order="9">Generate README.md at project root</step>
+    <step order="10">Present completion summary with manual steps checklist</step>
+  </generation_checklist>
+
+</code_generation_patterns>
+
+<!-- Made with Bob -->

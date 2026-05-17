@@ -1,0 +1,397 @@
+<multi_agent_system_builder_workflow>
+  <overview>
+    This file defines the complete generation workflow for multi-agent-system-builder mode.
+    This mode reads implementation.md and generates all backend files for a local multi-agent
+    system using FastAPI + LangGraph + ChatOllama (langchain-ollama).
+    It NEVER executes commands — it generates scripts and provides clear run instructions.
+    It NEVER starts without implementation.md being present and valid.
+  </overview>
+
+  <core_principles>
+    <principle name="implementation_md_first" priority="critical">
+      ALWAYS read implementation.md before generating a single file.
+      If implementation.md does not exist, tell the user to run deep-plan mode first.
+      If it exists but is missing required sections, list the gaps and ask the user to
+      complete it before proceeding.
+    </principle>
+    <principle name="no_command_execution" priority="critical">
+      NEVER run deployment or setup commands directly. Always generate scripts (setup.sh,
+      start.sh, etc.) with clear, annotated instructions for the user to run manually.
+    </principle>
+    <principle name="dependency_order" priority="high">
+      Generate files in dependency order. Never generate a file that imports from a file
+      that has not been generated yet in this session.
+      Order: config → models → llm → tools → graph → API → workflows → scripts
+    </principle>
+    <principle name="confirmation_gates" priority="high">
+      Present the generation plan before starting. After generating each major component,
+      pause briefly to confirm the user wants to continue to the next component.
+    </principle>
+    <principle name="snake_case" priority="high">
+      All agent names, tool names, module names, function names, file names: snake_case.
+      No exceptions in Python. React components are the only exception (PascalCase).
+    </principle>
+
+    <principle name="mcp_research_mandatory" priority="critical">
+      BEFORE generating any LangGraph, LangChain, or ChatOllama code, you MUST complete
+      a full MCP research session (Phase 0, Step 4). This is non-negotiable.
+      MCP provides current API syntax. Rule files provide architecture patterns and quality
+      standards. When they conflict on syntax, MCP always wins.
+      Never write a constructor parameter, import path, or method signature from a rule file
+      without first verifying it is current via MCP results.
+    </principle>
+
+    <principle name="patterns_not_syntax" priority="high">
+      All code shown in rule files is STRUCTURAL GUIDANCE — it illustrates architecture
+      shape and intent, not guaranteed current syntax. Any code that imports from langchain,
+      langgraph, or langchain_ollama must be MCP-verified before being written into a
+      generated file. Treat rule file code as a blueprint, not a ready-to-copy template.
+    </principle>
+
+    <principle name="existing_code_aware" priority="high">
+      Before generating any file, check if a version already exists in the project.
+      If backend/app/ already contains code, read it first — generate targeted additions
+      or diffs, not full replacements that would destroy existing work.
+    </principle>
+  </core_principles>
+
+  <phase number="0" name="pre_generation_validation">
+    <title>Read and Validate implementation.md</title>
+    <mandatory>true</mandatory>
+    <steps>
+      <step number="1">
+        <action>Read implementation.md</action>
+        <tool>read_file</tool>
+        <if_not_found>
+          Tell the user: "implementation.md not found. Please run deep-plan mode first to
+          generate the architectural plan before switching to this mode."
+          Do not proceed.
+        </if_not_found>
+      </step>
+
+      <step number="2">
+        <action>Validate required sections</action>
+        <required_sections>
+          <section>System Overview</section>
+          <section>Agent Inventory</section>
+          <section>Orchestration Topology</section>
+          <section>Data Flow and Contracts</section>
+          <section>API Design</section>
+          <section>Provider Configuration</section>
+          <section>Project Structure</section>
+          <section>Error Handling and Failure Modes</section>
+        </required_sections>
+        <if_sections_missing>
+          List exactly which sections are missing and what information they should contain.
+          Ask the user to complete them. Do not generate partial output.
+        </if_sections_missing>
+      </step>
+
+      <step number="3">
+        <action>Summarise what will be generated</action>
+        <output_format>
+          Present a todo list of all files to be generated, grouped by component.
+          Ask: "This is the full generation plan based on implementation.md.
+          Shall I proceed?"
+        </output_format>
+      </step>
+
+      <step number="4">
+        <action>Complete MCP research session — before writing the first line of generated code</action>
+        <mandatory>true</mandatory>
+        <description>
+          Run all baseline queries plus topology-specific queries based on implementation.md.
+          Read and confirm results. Present a brief API confirmation summary to the user.
+          Do NOT proceed to Phase 1 without completing this step.
+          This is the single most important guard against generating code with outdated syntax.
+        </description>
+        <token_budget_note>
+          Run these queries ONCE in Phase 0. All downstream rule files (2–8) reference these
+          results — they do NOT re-query. This is the only MCP batch for the entire session,
+          except for the one topology query and the streaming query if streaming is required.
+        </token_budget_note>
+        <baseline_queries>
+          <query purpose="state_graph_memory">search_docs_by_lang_chain("LangGraph StateGraph MessagesState ainvoke config thread_id compile MemorySaver import current")</query>
+          <query purpose="llm_provider">search_docs_by_lang_chain("ChatOllama langchain-ollama constructor parameters base_url temperature num_ctx keep_alive import current")</query>
+          <query purpose="react_agent">search_docs_by_lang_chain("LangGraph create_react_agent prebuilt prompt state_modifier system message signature current")</query>
+          <query purpose="tools">search_docs_by_lang_chain("LangChain tool decorator @tool async langchain-core import current")</query>
+          <query purpose="messages">search_docs_by_lang_chain("LangChain HumanMessage AIMessage SystemMessage langchain-core import current")</query>
+        </baseline_queries>
+        <topology_queries comment="Run ONLY the one matching implementation.md Orchestration Topology. Skip the rest.">
+          <query topology="supervisor">search_docs_by_lang_chain("LangGraph supervisor add_conditional_edges routing END current")</query>
+          <query topology="pipeline">search_docs_by_lang_chain("LangGraph sequential pipeline add_edge START END current")</query>
+          <query topology="parallel">search_docs_by_lang_chain("LangGraph Send API Annotated operator.add reducer map reduce parallel current")</query>
+          <query topology="streaming" note="Also run this if streaming endpoint is required by implementation.md">search_docs_by_lang_chain("LangGraph astream_events streaming version v2 on_chat_model_stream current")</query>
+        </topology_queries>
+        <output_format>
+          After completing queries, present a brief confirmation before starting Phase 1:
+          "MCP research complete. Confirmed for this session:
+           - StateGraph/MessagesState import: [from MCP]
+           - MemorySaver import + ainvoke config thread_id structure: [from MCP]
+           - ChatOllama import + confirmed parameter names: [from MCP]
+           - create_react_agent signature + system prompt parameter: [from MCP]
+           - @tool import: [from MCP]
+           - HumanMessage/AIMessage/SystemMessage import: [from MCP]
+           These results cover all downstream files. No further MCP queries needed unless
+           production persistence (SqliteSaver) or streaming is implemented."
+        </output_format>
+      </step>
+    </steps>
+  </phase>
+
+  <phase number="1" name="foundation">
+    <title>Config and Shared Models</title>
+    <files_to_generate>
+      <file path="backend/app/config.py">
+        <purpose>Pydantic Settings class for all environment variables with defaults</purpose>
+        <content_rules>
+          <rule>Use pydantic-settings BaseSettings with SettingsConfigDict</rule>
+          <rule>All env vars from implementation.md provider_configuration table</rule>
+          <rule>Include OLLAMA_BASE_URL, DEFAULT_MODEL, LLM_TEMPERATURE, OLLAMA_NUM_CTX, OLLAMA_KEEP_ALIVE as minimum</rule>
+          <rule>Add one per-agent model field per agent from implementation.md Agent Inventory</rule>
+          <rule>Export a single settings singleton: settings = Settings()</rule>
+          <rule>See 8_code_generation.xml config_template</rule>
+        </content_rules>
+      </file>
+      <file path="backend/app/models/schemas.py">
+        <purpose>Pydantic API models — ChatRequest, ChatResponse, TaskResponse, TaskResult</purpose>
+        <content_rules>
+          <rule>Only API boundary models go here — LangGraph manages internal state</rule>
+          <rule>See 8_code_generation.xml schemas_template</rule>
+        </content_rules>
+      </file>
+      <file path="backend/requirements.txt">
+        <purpose>Python dependencies — LangGraph stack</purpose>
+        <content_rules>
+          <rule>Must include: fastapi, uvicorn, pydantic, pydantic-settings, httpx, langchain-core, langchain-ollama, langgraph</rule>
+          <rule>Do NOT include the raw ollama package — langchain-ollama wraps it</rule>
+          <rule>See 8_code_generation.xml requirements_template</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="2" name="llm_factory">
+    <title>LLM Factory</title>
+    <files_to_generate>
+      <file path="backend/app/llm.py">
+        <purpose>get_llm() factory returning configured ChatOllama instances</purpose>
+        <content_rules>
+          <rule>See 4_provider_ollama.xml get_llm_factory for the structural pattern</rule>
+          <rule>Use Phase 0 Step 4 MCP results for confirmed parameter names — do not re-query</rule>
+          <rule>Uses langchain_ollama.ChatOllama — NOT langchain_community</rule>
+          <rule>Reads all parameters from settings (never hardcoded)</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="3" name="tools">
+    <title>LangChain Tools</title>
+    <condition>Only generate if implementation.md Agent Inventory defines tool-using agents</condition>
+    <for_each_tool_group_in_inventory>
+      <file path="backend/app/tools/{domain}_tools.py">
+        <purpose>@tool decorated functions for a given domain (web, database, file, etc.)</purpose>
+        <content_rules>
+          <rule>See 3_agent_design.xml tool_pattern for the structural pattern</rule>
+          <rule>Use Phase 0 Step 4 MCP results for confirmed @tool import — do not re-query</rule>
+          <rule>Docstrings are critical — the LLM reads them to decide when to call the tool</rule>
+          <rule>Never raise exceptions from tools — catch errors and return a string</rule>
+        </content_rules>
+      </file>
+    </for_each_tool_group_in_inventory>
+  </phase>
+
+  <phase number="4" name="graph">
+    <title>LangGraph Graph (State, Nodes, Builder)</title>
+    <files_to_generate>
+      <file path="backend/app/graph/state.py">
+        <purpose>State type definitions — MessagesState extensions for supervisor or routing patterns</purpose>
+        <content_rules>
+          <rule>See 2_orchestration_core.xml state_types and 8_code_generation.xml graph_state_template</rule>
+          <rule>Only add fields beyond MessagesState when routing metadata is needed</rule>
+        </content_rules>
+      </file>
+      <file path="backend/app/graph/nodes.py">
+        <purpose>All graph node functions — one per agent from implementation.md Agent Inventory</purpose>
+        <content_rules>
+          <rule>See 3_agent_design.xml for react_agent_pattern and custom_node_pattern</rule>
+          <rule>Use Phase 0 Step 4 MCP results for confirmed create_react_agent signature — do not re-query</rule>
+          <rule>ReAct agents use create_react_agent() from langgraph.prebuilt</rule>
+          <rule>Custom nodes are async def functions returning dict state updates</rule>
+          <rule>System prompts from implementation.md Agent Inventory entries</rule>
+          <rule>Model assigned via get_llm(model=settings.X_model) — never hardcoded</rule>
+        </content_rules>
+      </file>
+      <file path="backend/app/graph/builder.py">
+        <purpose>StateGraph construction and compilation — the orchestration definition</purpose>
+        <content_rules>
+          <rule>See 2_orchestration_core.xml for supervisor_pattern and pipeline_pattern</rule>
+          <rule>Use Phase 0 Step 4 MCP results for confirmed StateGraph/MemorySaver imports — do not re-query</rule>
+          <rule>Pattern from implementation.md Orchestration Topology section: supervisor-worker or pipeline</rule>
+          <rule>Returns compiled graph: builder.compile(checkpointer=MemorySaver())</rule>
+          <rule>WORKER_AGENTS list and conditional_edges routing map must be in sync</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="5" name="api_layer">
+    <title>FastAPI Application and Routes</title>
+    <files_to_generate>
+      <file path="backend/app/main.py">
+        <purpose>FastAPI application entry point — graph compilation in lifespan</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml fastapi_app_template</rule>
+          <rule>Lifespan: check Ollama, warm up model, compile graph, store in app.state.graph</rule>
+          <rule>CORS middleware configured for frontend origin</rule>
+        </content_rules>
+      </file>
+      <file path="backend/app/api/v1/routes.py">
+        <purpose>All API endpoint definitions from implementation.md API Design section</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml api_routes_template</rule>
+          <rule>Routes call req.app.state.graph.ainvoke() with thread_id=request.session_id</rule>
+          <rule>Always include /health endpoint that checks Ollama connectivity</rule>
+          <rule>Include streaming endpoint if implementation.md requires it (see 6_workflow_patterns.xml streaming)</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="6" name="workflows">
+    <title>Additional Workflow Implementations</title>
+    <condition>Only generate if implementation.md defines complex multi-step workflows beyond the main graph</condition>
+    <files_to_generate>
+      <file path="backend/app/graph/{workflow_name}.py">
+        <purpose>Alternative graph definition for a specific workflow variant</purpose>
+        <content_rules>
+          <rule>See 6_workflow_patterns.xml for pipeline, parallel, conditional, and streaming patterns</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="7" name="scripts_and_config">
+    <title>Deployment Scripts and Configuration Files</title>
+    <files_to_generate>
+      <file path="backend/Dockerfile">
+        <purpose>Backend container — Python 3.11-slim, installs requirements.txt, runs uvicorn</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml backend_dockerfile_template</rule>
+          <rule>COPY requirements.txt before COPY . for Docker layer caching</rule>
+          <rule>CMD uses --reload for development; remove for production</rule>
+        </content_rules>
+      </file>
+      <file path="frontend/Dockerfile">
+        <purpose>Frontend container — Node 20-slim, installs npm deps, runs Vite dev server</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml frontend_dockerfile_template</rule>
+          <rule>Must bind to 0.0.0.0 so Docker port mapping works: npm run dev -- --host 0.0.0.0</rule>
+        </content_rules>
+      </file>
+      <file path="docker-compose.yml">
+        <purpose>Orchestrates backend + frontend containers. Single command to start everything.</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml docker_compose_template</rule>
+          <rule>extra_hosts host.docker.internal:host-gateway is required on Linux for Ollama access</rule>
+          <rule>Backend reads from backend/.env via env_file</rule>
+          <rule>Volume mounts enable live reload without rebuild</rule>
+        </content_rules>
+      </file>
+      <file path="backend/.dockerignore">
+        <purpose>Prevents .env, __pycache__, .venv from entering the Docker image</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml dockerignore_template</rule>
+        </content_rules>
+      </file>
+      <file path="backend/.env.example">
+        <purpose>Template environment file — all variables from implementation.md, no real values</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml env_example_template</rule>
+          <rule>All variables from config.py Settings class</rule>
+          <rule>Include all per-agent model overrides, commented out</rule>
+        </content_rules>
+      </file>
+      <file path=".gitignore">
+        <purpose>Prevent secrets and build artifacts from git — especially .env</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml gitignore_template</rule>
+          <rule>Always include .env, .venv/, __pycache__/, *.pyc, checkpoints.db</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="8" name="readme_and_tests">
+    <title>README, Tests, and Project Config</title>
+    <files_to_generate>
+      <file path="README.md">
+        <purpose>Project documentation — setup, running, env vars, how to add agents</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml readme_template as baseline</rule>
+          <rule>Replace placeholder names and env vars with actual values from implementation.md</rule>
+          <rule>Include all agents in the system and their purpose</rule>
+          <rule>"How to Add a New Agent" section must reflect the LangGraph node pattern</rule>
+        </content_rules>
+      </file>
+      <file path="backend/pyproject.toml">
+        <purpose>pytest configuration — asyncio_mode = "auto" is required for async tests to run</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml pyproject_template</rule>
+          <rule>Without asyncio_mode = "auto", async test functions silently pass without executing</rule>
+        </content_rules>
+      </file>
+      <file path="backend/tests/conftest.py">
+        <purpose>Shared pytest fixtures — mock_llm fixture available to all test files</purpose>
+        <content_rules>
+          <rule>See 8_code_generation.xml conftest_template</rule>
+          <rule>mock_llm patches get_llm() — used in node unit tests</rule>
+        </content_rules>
+      </file>
+      <file path="backend/tests/test_graph.py">
+        <purpose>Unit test stubs for graph nodes — one test per node minimum</purpose>
+        <content_rules>
+          <rule>See 7_best_practices.xml mock_llm_pattern for the test structure</rule>
+          <rule>One test for happy path, one for error path per node</rule>
+          <rule>Use patch("app.graph.nodes.get_llm") to inject the mock_llm fixture</rule>
+        </content_rules>
+      </file>
+    </files_to_generate>
+  </phase>
+
+  <phase number="9" name="completion">
+    <title>Completion Summary</title>
+    <steps>
+      <step>
+        <action>List all generated files with their paths</action>
+      </step>
+      <step>
+        <action>Provide manual steps checklist</action>
+        <checklist_items>
+          <item>Copy backend/.env.example to backend/.env and set OLLAMA_BASE_URL=http://host.docker.internal:11434</item>
+          <item>Pull required Ollama models on the host: ollama pull MODEL_NAME (one per model in implementation.md)</item>
+          <item>Run: docker compose up --build — wait for both containers to be healthy</item>
+          <item>Verify backend: curl http://localhost:8000/api/v1/health → {"status": "ok"}</item>
+          <item>Verify frontend: open http://localhost:5173</item>
+          <item>Test POST /api/v1/chat with {"session_id": "test-1", "message": "hello"}</item>
+          <item>Run /lint on generated files in a new Advanced mode session</item>
+        </checklist_items>
+      </step>
+      <step>
+        <action>Tell the user what to do next</action>
+        <message>
+          "All backend files have been generated. Next steps:
+          1. Edit backend/.env — set OLLAMA_BASE_URL=http://host.docker.internal:11434 and tune OLLAMA_NUM_CTX for your hardware
+          2. Pull required Ollama models on your host: ollama pull MODEL_NAME
+          3. Run: docker compose up --build from the project root
+          4. Open a new session in Advanced mode and run /lint to catch any issues
+          5. When ready for the frontend, switch to frontend-craftsman mode"
+        </message>
+      </step>
+    </steps>
+  </phase>
+
+</multi_agent_system_builder_workflow>
+
+<!-- Made with Bob -->

@@ -1,0 +1,32 @@
+Q2 Budget Planning — May 5, 2026
+Attendees: Diana Ross, Sarah Chen, Marcus Johnson, Priya Patel
+
+[14:02] Diana Ross: Alright everyone, let's get started. The agenda today is to review our Q2 headcount budget and make some final calls on contractor spend. I've shared the spreadsheet in the chat.
+
+[14:04] Marcus Johnson: I've had a look. The contractor line is running about 22% over what we projected in January. The main driver is the data pipeline work we spun up in March.
+
+[14:07] Sarah Chen: Right, and that was a reactive decision. We didn't have the internal capacity. Going forward I think we need to be more careful about how we commit to that kind of spend.
+
+[14:10] Diana Ross: Agreed. So the proposal on the table is a 15% reduction in contractor spend for Q2. Does anyone have objections?
+
+[14:12] Priya Patel: I'm fine with it as long as we don't cut the mobile contractor before the app store submission. That's blocking a release.
+
+[14:14] Marcus Johnson: We can protect that line specifically. The cuts would come from the data work and the design contractors.
+
+[14:16] Diana Ross: Okay, so we're agreed — contractor spend reduced by 15% across Q2, with the mobile contractor protected until the May release.
+
+[14:18] Sarah Chen: That works for me.
+
+[14:19] Marcus Johnson: Same here.
+
+[14:20] Diana Ross: Great. Marcus, can you model out three scenarios for how we hit that target? Best case, base case, and if we need to go harder. I'd like that by end of week.
+
+[14:22] Marcus Johnson: Sure, I'll have it to you by Thursday.
+
+[14:23] Diana Ross: Perfect. One more thing — Priya, can we look at the Q3 headcount ask? We have four open reqs and I want to make sure we can absorb them.
+
+[14:26] Priya Patel: Yes, I'll bring a summary to next week's review. Two of the reqs are critical path for the roadmap and two are backfill.
+
+[14:28] Diana Ross: Good. Let's wrap there. To summarise: we're cutting contractor spend by 15% in Q2, mobile is protected, Marcus is modelling the scenarios by Thursday, and Priya is reviewing Q3 headcount reqs for next week.
+
+[14:30] Sarah Chen: Sounds good. Thanks everyone.

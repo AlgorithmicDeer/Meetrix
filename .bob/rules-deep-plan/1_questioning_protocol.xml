@@ -1,0 +1,282 @@
+<deep_plan_questioning_protocol>
+  <overview>
+    This file defines the structured questioning protocol for deep-plan mode.
+    The mode MUST follow this protocol for every new project or major feature.
+    The goal is to extract enough architectural clarity to write a complete,
+    unambiguous implementation.md that multi-agent-system-builder can execute without guesswork.
+
+    When /grill-me is active, apply maximum questioning depth at every step.
+    Never skip a phase. Never accept incomplete answers. Never switch modes before
+    implementation.md is written and the user has confirmed satisfaction.
+  </overview>
+
+  <phase number="1" name="initial_context">
+    <description>Understand what exists and what is being built</description>
+
+    <step number="1">
+      <action>Check for existing project structure</action>
+      <tools>list_files, read_file</tools>
+      <look_for>
+        <item>Existing implementation.md or plan files</item>
+        <item>Existing agent definitions or configs</item>
+        <item>requirements.txt or pyproject.toml for tech stack clues</item>
+        <item>Any prior Bob session artifacts</item>
+      </look_for>
+      <if_found>Read and summarise what exists before asking questions</if_found>
+      <if_not_found>Proceed to step 2 directly</if_not_found>
+    </step>
+
+    <step number="2">
+      <action>Ask about the system's core purpose</action>
+      <question_template>
+        <ask_followup_question>
+          <question>What is this multi-agent system designed to do? Describe the primary problem it solves and who uses it.</question>
+          <follow_up>
+            <suggest>It automates a specific business workflow (e.g., document processing, research, customer support)</suggest>
+            <suggest>It powers an AI assistant with multiple specialised capabilities</suggest>
+            <suggest>It coordinates data gathering and analysis from multiple sources</suggest>
+            <suggest>Let me describe it in my own words</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+      <depth_probes>
+        <probe>Who are the end users — humans interacting via UI, or other systems calling an API?</probe>
+        <probe>What does success look like for a single interaction through this system?</probe>
+        <probe>What is the system NOT supposed to do — what is explicitly out of scope?</probe>
+      </depth_probes>
+    </step>
+
+    <step number="3">
+      <action>Understand project type</action>
+      <question_template>
+        <ask_followup_question>
+          <question>Is this a new project from scratch, or are you extending an existing system?</question>
+          <follow_up>
+            <suggest>New project — starting with an empty directory</suggest>
+            <suggest>Extending existing code — I have agents or services already running</suggest>
+            <suggest>Replacing an existing system — migrating from another architecture</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+    </step>
+  </phase>
+
+  <phase number="2" name="agent_topology">
+    <description>Define every agent, its role, and how they relate to each other</description>
+
+    <step number="1">
+      <action>Establish agent count and architecture pattern</action>
+      <question_template>
+        <ask_followup_question>
+          <question>What agent architecture pattern fits your system best?</question>
+          <follow_up>
+            <suggest>Supervisor-worker: one orchestrator agent delegates to specialised workers</suggest>
+            <suggest>Pipeline: agents process data sequentially, each transforming the output of the previous</suggest>
+            <suggest>Peer-to-peer: agents collaborate directly without a central coordinator</suggest>
+            <suggest>Swarm: dynamic pool of agents that self-organise around tasks</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+      <depth_probes>
+        <probe>How many distinct specialised agents do you expect? Name each one and its responsibility in one sentence.</probe>
+        <probe>Which agent is the entry point for an incoming request?</probe>
+        <probe>Are there any agents that should never communicate directly — and why?</probe>
+      </depth_probes>
+    </step>
+
+    <step number="2">
+      <action>Define each agent's responsibility boundaries</action>
+      <for_each_agent>
+        <question>What is [agent_name] responsible for?</question>
+        <question>What is [agent_name] explicitly NOT responsible for?</question>
+        <question>What tools or external services does [agent_name] need access to?</question>
+        <question>What does [agent_name] receive as input and return as output — what are the data types?</question>
+      </for_each_agent>
+      <depth_probes>
+        <probe>If two agents could both handle a request, how do you decide which one gets it?</probe>
+        <probe>Can any agent call another agent directly, or does all routing go through the orchestrator?</probe>
+      </depth_probes>
+    </step>
+  </phase>
+
+  <phase number="3" name="data_flow_and_contracts">
+    <description>Define exactly what data moves between agents and in what format</description>
+
+    <step number="1">
+      <action>Map the data flow for the primary workflow</action>
+      <question_template>
+        <ask_followup_question>
+          <question>Walk me through a complete primary workflow step by step — what data enters the system, what happens at each agent, and what leaves at the end?</question>
+          <follow_up>
+            <suggest>User sends a text message → orchestrator routes it → specialist agents process → response returns to user</suggest>
+            <suggest>An API call triggers a pipeline → agents transform data → result stored or sent to external system</suggest>
+            <suggest>A scheduled event fires → agents gather and process data → report generated</suggest>
+            <suggest>Let me describe the specific workflow</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+    </step>
+
+    <step number="2">
+      <action>Define data contracts between agents</action>
+      <questions>
+        <question>What is the exact format of data passed between agents — JSON schema, Pydantic model, plain string?</question>
+        <question>Are there shared data models that multiple agents use, or does each agent define its own?</question>
+        <question>How is conversation context or session history passed between agents?</question>
+      </questions>
+      <depth_probes>
+        <probe>What happens if an agent receives malformed or unexpected data? Who handles the error?</probe>
+        <probe>Are there large payloads (e.g., files, documents) being passed? How are those handled?</probe>
+      </depth_probes>
+    </step>
+  </phase>
+
+  <phase number="4" name="provider_and_model_strategy">
+    <description>Define which Ollama models are used, how, and what happens if they fail</description>
+
+    <step number="1">
+      <action>Establish Ollama model assignments</action>
+      <question_template>
+        <ask_followup_question>
+          <question>Do different agents need different Ollama models, or will all agents use the same model?</question>
+          <follow_up>
+            <suggest>All agents use the same model (e.g., llama3.2, mistral, phi3)</suggest>
+            <suggest>Different agents use different models based on capability requirements</suggest>
+            <suggest>I want to keep the model configurable per-agent via environment or config file</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+      <depth_probes>
+        <probe>For agents that need reasoning or planning, have you considered a larger model (e.g., llama3.1:70b)?</probe>
+        <probe>For agents doing fast classification or routing, have you considered a smaller, faster model (e.g., phi3, gemma2:2b)?</probe>
+        <probe>Do you need streaming responses from Ollama, or are synchronous completions sufficient?</probe>
+      </depth_probes>
+    </step>
+
+  </phase>
+
+  <phase number="5" name="api_and_interfaces">
+    <description>Define how external systems and users interact with the multi-agent system</description>
+
+    <step number="1">
+      <action>Define the API surface</action>
+      <question_template>
+        <ask_followup_question>
+          <question>How do external systems or users interact with this multi-agent system?</question>
+          <follow_up>
+            <suggest>REST API — HTTP endpoints consumed by a frontend or other services</suggest>
+            <suggest>WebSocket — real-time bidirectional communication for streaming responses</suggest>
+            <suggest>Both REST and WebSocket depending on the use case</suggest>
+            <suggest>Internal only — no external API, agents are called programmatically</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+      <depth_probes>
+        <probe>What are the specific API endpoints you expect? Name them: path, method, purpose.</probe>
+        <probe>Does the API need authentication? If so, what mechanism — API key, JWT, OAuth?</probe>
+        <probe>Does the frontend need to stream agent responses in real time, or can it wait for the full response?</probe>
+      </depth_probes>
+    </step>
+  </phase>
+
+  <phase number="6" name="scalability_and_failure">
+    <description>Understand performance requirements and how the system behaves under stress or failure</description>
+
+    <step number="1">
+      <action>Establish concurrency and performance requirements</action>
+      <questions>
+        <question>How many concurrent users or requests does this system need to handle?</question>
+        <question>What is the acceptable response latency for a typical interaction?</question>
+        <question>Are any workflows long-running (seconds to minutes)? How should the user experience work during that time?</question>
+      </questions>
+    </step>
+
+    <step number="2">
+      <action>Define failure behaviour</action>
+      <questions>
+        <question>What happens if an individual agent fails mid-workflow? Does the whole request fail, or is there retry/fallback logic?</question>
+        <question>What happens if Ollama is unavailable or returns an error?</question>
+        <question>Is there a timeout policy? What is the maximum time to wait for any single agent?</question>
+        <question>Should failed workflows be retried automatically or require manual intervention?</question>
+      </questions>
+      <depth_probes>
+        <probe>Is there a dead-letter queue or error log for failed workflows?</probe>
+        <probe>Should the user receive a partial result or no result on failure?</probe>
+      </depth_probes>
+    </step>
+  </phase>
+
+  <phase number="7" name="security_and_deployment">
+    <description>Establish security requirements and deployment target</description>
+
+    <step number="1">
+      <action>Define security requirements</action>
+      <question_template>
+        <ask_followup_question>
+          <question>What security requirements does this system have?</question>
+          <follow_up>
+            <suggest>API key authentication for all requests</suggest>
+            <suggest>JWT-based user authentication with role-based access control</suggest>
+            <suggest>Internal tool only — no external authentication needed</suggest>
+            <suggest>Sensitive data handling requirements (PII, compliance, encryption)</suggest>
+          </follow_up>
+        </ask_followup_question>
+      </question_template>
+    </step>
+
+    <step number="2">
+      <action>Define deployment target</action>
+      <questions>
+        <question>Where does this system run — local development machine, a server, Docker, cloud VM?</question>
+        <question>Do you need a Docker Compose setup to start all services together?</question>
+        <question>What environment variables need to be configurable at deployment time?</question>
+      </questions>
+    </step>
+  </phase>
+
+  <phase number="8" name="satisfaction_gate">
+    <description>
+      Only enter this phase when all previous phases have produced sufficient clarity.
+      Never enter prematurely. If any area is still vague, return to the relevant phase.
+    </description>
+
+    <step number="1">
+      <action>Present architecture summary</action>
+      <output_format>
+        Present a structured summary covering:
+        - System purpose and users
+        - Agent inventory (name, role, model, tools)
+        - Orchestration topology and routing logic
+        - Data contracts between agents
+        - API surface (endpoints, auth)
+        - Provider strategy (Ollama models, model assignments per agent)
+        - Failure modes and fallback strategy
+        - Deployment target and environment config
+        - Open decisions (if any remain)
+      </output_format>
+    </step>
+
+    <step number="2">
+      <action>Ask the satisfaction question</action>
+      <mandatory>true</mandatory>
+      <question>
+        "I believe I have a solid enough understanding of the architecture to write the implementation plan.
+        Are you satisfied with the level of detail we have reached, or should we continue refining?"
+      </question>
+      <if_yes>Generate implementation.md using the format in 2_implementation_md_format.xml. Do not switch modes.</if_yes>
+      <if_no>Ask what area needs more depth. Return to the relevant phase and continue questioning.</if_no>
+    </step>
+  </phase>
+
+  <important_rules>
+    <rule priority="critical">NEVER switch modes or suggest switching before implementation.md is written and satisfaction confirmed.</rule>
+    <rule priority="critical">NEVER generate implementation.md without passing the satisfaction gate in phase 8.</rule>
+    <rule priority="high">Ask 2–4 questions at a time maximum. Never overwhelm with a list of 10 questions at once.</rule>
+    <rule priority="high">When /grill-me is active, apply depth_probes at every step — do not skip them.</rule>
+    <rule priority="high">Use ask_followup_question tool for all structured questions. Provide 2–4 actionable suggestions.</rule>
+    <rule priority="medium">Present progress summaries after every 5–7 exchanges: what is known, what is still undefined.</rule>
+    <rule priority="medium">If the user is unsure about a decision, provide 2–3 concrete options with trade-offs — do not leave them without guidance.</rule>
+  </important_rules>
+</deep_plan_questioning_protocol>
+
+<!-- Made with Bob -->

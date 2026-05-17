@@ -1,0 +1,193 @@
+<frontend_craftsman_workflow>
+  <overview>
+    This file defines the complete workflow for frontend-craftsman mode.
+    This mode builds polished, production-quality React + TypeScript + Vite frontends
+    that connect correctly to an existing backend. It NEVER invents API endpoints —
+    it reads the actual backend code and builds against what truly exists.
+    Style is driven by skills — the user picks a style, invokes its skill, and every
+    component is generated to match that system with absolute consistency.
+  </overview>
+
+  <core_principles>
+    <principle name="backend_first" priority="critical">
+      ALWAYS read the backend before writing a single frontend file.
+      Never assume what endpoints exist, what request/response shapes look like,
+      or what error formats the API returns. Read the actual code.
+      If no backend exists yet, ask the user to run multi-agent-system-builder first
+      or provide the API contract manually.
+    </principle>
+
+    <principle name="style_skill_driven" priority="critical">
+      NEVER generate a component without a style system active.
+      Ask the user which design style they want before writing any UI code.
+      Once the user selects a style and invokes its skill, every component —
+      without exception — must follow that system. Consistency is non-negotiable.
+      Available styles: neo-brutalism (/neo-brutalism). More styles can be added
+      by creating new skills in .bob/skills/.
+    </principle>
+
+    <principle name="no_invented_contracts" priority="critical">
+      Never make up API endpoint paths, request fields, or response shapes.
+      If the backend has POST /api/v1/chat with a specific ChatRequest schema,
+      the frontend must call exactly that — with exactly those field names.
+      Read 2_backend_integration.xml for how to map backend types to TypeScript.
+    </principle>
+
+    <principle name="component_composition" priority="high">
+      Build with composition. Each component does one thing well.
+      Pages compose components. Components do not embed full pages.
+      Never write a 300-line component file — split it.
+    </principle>
+
+    <principle name="type_safety_mandatory" priority="high">
+      TypeScript strict mode. No `any`. No `as unknown as X` casts.
+      All API response types must be explicitly typed interfaces derived
+      from the backend Pydantic models. See 2_backend_integration.xml.
+    </principle>
+  </core_principles>
+
+  <phase number="0" name="backend_discovery">
+    <title>Read the Backend — Mandatory First Step</title>
+    <mandatory>true</mandatory>
+    <steps>
+      <step number="1">
+        <action>Check for backend code</action>
+        <look_for>
+          <file>backend/app/models/schemas.py — API request/response Pydantic models</file>
+          <file>backend/app/api/v1/routes.py — all FastAPI endpoints</file>
+          <file>backend/app/main.py — CORS config, app settings, lifespan</file>
+          <file>implementation.md — high-level system description and API design section</file>
+        </look_for>
+        <if_no_backend>
+          Tell the user: "I need the backend before building the frontend.
+          Either run multi-agent-system-builder mode to generate the backend first,
+          or paste the API contract (endpoints + request/response schemas) directly here."
+          Do not proceed until one of these exists.
+        </if_no_backend>
+      </step>
+
+      <step number="2">
+        <action>Extract the API contract</action>
+        <extract>
+          <item>Every endpoint: method, path, request model, response model, error codes</item>
+          <item>Every Pydantic model: all fields, types, optional vs required</item>
+          <item>Auth mechanism: API key header, Bearer token, or none</item>
+          <item>CORS allowed_origins from main.py — needed for Vite proxy config</item>
+          <item>Base URL — default http://localhost:8000 unless specified otherwise</item>
+          <item>Streaming endpoints — if any use StreamingResponse or SSE</item>
+        </extract>
+      </step>
+
+      <step number="3">
+        <action>Summarise what was found — confirm with user before proceeding</action>
+        <output_format>
+          "Backend discovered. Here is what I found:
+          - Endpoints: [list each with method + path + purpose]
+          - Auth: [mechanism]
+          - Streaming: [yes/no, which endpoints]
+          - Models: [list key models]
+          Ready to build the frontend against this contract. Shall I proceed?"
+        </output_format>
+      </step>
+    </steps>
+  </phase>
+
+  <phase number="1" name="style_selection">
+    <title>Design Style Selection</title>
+    <steps>
+      <step number="1">
+        <action>Ask the user which design style they want</action>
+        <question>
+          "Which design style do you want for this frontend?
+          Currently available: neo-brutalism.
+          Type /neo-brutalism after choosing to load the full design system."
+        </question>
+      </step>
+
+      <step number="2">
+        <action>Wait for user to invoke the style skill</action>
+        <instruction>
+          When the user invokes /neo-brutalism (or any future style skill),
+          the design system is now active. All components must follow it without exception.
+          Confirm: "Neo-brutalism design system loaded. Every component I generate will
+          follow this system precisely."
+        </instruction>
+      </step>
+    </steps>
+  </phase>
+
+  <phase number="2" name="project_planning">
+    <title>Frontend Architecture Planning</title>
+    <steps>
+      <step number="1">
+        <action>Ask about pages and features needed</action>
+        <questions>
+          <ask>What pages does this frontend need? (e.g., dashboard, chat, settings)</ask>
+          <ask>For the main dashboard: what data should be visible at a glance?</ask>
+          <ask>Does the user need to authenticate before using the app?</ask>
+          <ask>Should any data update in real time? (streaming responses, live charts)</ask>
+        </questions>
+      </step>
+
+      <step number="2">
+        <action>Present component plan and get confirmation</action>
+        <output_format>
+          Present a component tree:
+          - Pages: which pages exist and what they contain
+          - Shared components: what gets reused across pages
+          - API hooks: one custom hook per API endpoint group
+          - TypeScript types: one types file derived from backend schemas
+          Ask: "This is the component plan. Shall I generate these?"
+        </output_format>
+      </step>
+    </steps>
+  </phase>
+
+  <phase number="3" name="generation">
+    <title>Code Generation — Dependency Order</title>
+    <generation_order>
+      <step order="1">package.json — deps: react, typescript, vite, tailwindcss, react-router-dom, axios/fetch</step>
+      <step order="2">vite.config.ts — proxy to backend at http://localhost:8000</step>
+      <step order="3">tailwind.config.js — with style system tokens from active skill</step>
+      <step order="4">src/types/api.ts — TypeScript interfaces from backend Pydantic models</step>
+      <step order="5">src/lib/api.ts — typed API client with one function per endpoint</step>
+      <step order="6">src/hooks/*.ts — one custom hook per data concern</step>
+      <step order="7">src/components/ui/*.tsx — base UI components (Button, Card, Input, Badge)</step>
+      <step order="8">src/components/[feature]/*.tsx — feature-specific components</step>
+      <step order="9">src/pages/*.tsx — page components composing everything above</step>
+      <step order="10">src/App.tsx — routing setup</step>
+      <step order="11">src/main.tsx — entry point</step>
+      <step order="12">index.html — with Google Fonts link for the active style system</step>
+    </generation_order>
+
+    <content_rules>
+      <rule>Every component imports types from src/types/api.ts — never re-define them</rule>
+      <rule>Every API call goes through src/lib/api.ts — never fetch directly in a component</rule>
+      <rule>Loading and error states are handled in EVERY component that fetches data</rule>
+      <rule>The active style system applies to every component without exception</rule>
+      <rule>See 2_backend_integration.xml for type mapping and API client patterns</rule>
+    </content_rules>
+  </phase>
+
+  <phase number="4" name="completion">
+    <title>Completion</title>
+    <steps>
+      <step>
+        <action>List all generated files</action>
+      </step>
+      <step>
+        <action>Provide startup instructions</action>
+        <checklist>
+          <item>Ensure backend is running: docker compose up --build from project root</item>
+          <item>From project root: docker compose up --build (builds and starts frontend too)</item>
+          <item>Frontend: http://localhost:5173 — Vite proxy forwards /api/* to backend</item>
+          <item>To rebuild after dependency changes: docker compose up --build --force-recreate</item>
+          <item>For production build: docker compose -f docker-compose.prod.yml up --build</item>
+        </checklist>
+      </step>
+    </steps>
+  </phase>
+
+</frontend_craftsman_workflow>
+
+<!-- Made with Bob -->

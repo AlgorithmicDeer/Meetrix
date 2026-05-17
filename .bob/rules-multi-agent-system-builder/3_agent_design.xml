@@ -1,0 +1,226 @@
+<agent_design_patterns>
+  <overview>
+    In LangGraph, agents are graph nodes: async Python functions that receive state and
+    return state updates. Tools are @tool-decorated functions the LLM can invoke.
+    There is no BaseAgent class — the StateGraph and node functions ARE the agent architecture.
+    This file covers: the two node types, tools, system prompt engineering, and design principles.
+    For how nodes connect into a graph, see 2_orchestration_core.xml.
+  </overview>
+
+  <docs_reference>
+    <url label="LangGraph: agentic concepts (nodes, tools, state)">
+      https://langchain-ai.github.io/langgraph/concepts/agentic_concepts/
+    </url>
+    <url label="LangGraph: create_react_agent (prebuilt)">
+      https://langchain-ai.github.io/langgraph/reference/prebuilt/#langgraph.prebuilt.chat_agent_executor.create_react_agent
+    </url>
+    <url label="LangChain: @tool decorator and custom tools">
+      https://python.langchain.com/docs/how_to/custom_tools/
+    </url>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+  </docs_reference>
+
+  <two_node_types>
+    <type name="react_agent">
+      <description>
+        Built with create_react_agent(). The LLM autonomously decides which tools to call
+        and when to stop. Best for agents that need to use tools based on reasoning.
+      </description>
+      <when_to_use>
+        <case>Agent needs to call external tools (web search, database, APIs)</case>
+        <case>Multiple tool calls may be needed to answer a single request</case>
+        <case>The agent must reason about WHICH tool to call and in what order</case>
+      </when_to_use>
+    </type>
+    <type name="custom_node">
+      <description>
+        A plain async function: async def node_name(state) -> dict.
+        Best for deterministic, single-LLM-call logic: classifiers, formatters, supervisors.
+      </description>
+      <when_to_use>
+        <case>Agent always calls the LLM exactly once (no tool decision)</case>
+        <case>Agent transforms or validates data without external calls</case>
+        <case>Supervisor routing logic (call LLM once, extract routing label)</case>
+      </when_to_use>
+    </type>
+  </two_node_types>
+
+  <react_agent_pattern>
+    <description>
+      Use create_react_agent() for agents that use tools. The result is a compiled
+      mini-graph — add it directly as a node via builder.add_node().
+      System prompt is passed as a parameter to create_react_agent().
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      The system prompt parameter name is particularly fragile — it has been state_modifier,
+      prompt, and other names across LangGraph versions. MCP will confirm the current name.
+
+      Structural pattern:
+        def create_X_agent():
+            """Factory — called once during graph construction in builder.py."""
+            llm = get_llm(model=settings.x_model, temperature=0.3)
+            return create_react_agent(
+                llm,
+                tools=[tool_a, tool_b],
+                [SYSTEM_PROMPT_PARAM]=SystemMessage(content=X_AGENT_PROMPT),
+            )
+
+      [SYSTEM_PROMPT_PARAM] = verify exact parameter name via MCP before implementing.
+
+      The factory function is called once during build_graph() and the result is
+      passed directly to builder.add_node("agent_name", create_X_agent()).
+      create_react_agent returns a compiled subgraph — it handles its own internal
+      tool-calling loop without any additional wiring.
+    </implementation_guidance>
+  </react_agent_pattern>
+
+  <custom_node_pattern>
+    <description>
+      For agents that call the LLM once with a fixed system prompt — no tool decisions.
+      The function takes state (MessagesState or a subclass) and returns a dict
+      with the key "messages" containing the new message to append.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify all imports via MCP):
+        async def x_node(state: [StateType]) -> dict:
+            try:
+                llm = get_llm(model=settings.x_model, temperature=0.3)
+                messages = [SystemMessage(content=X_PROMPT)] + state["messages"]
+                response = await llm.ainvoke(messages)
+                return {"messages": [response]}
+            except Exception as e:
+                logger.error("x_node failed: %s", str(e))
+                return {"messages": [AIMessage(content=f"Error: {str(e)}")]}
+
+      Verify: StateType (MessagesState or subclass), AIMessage, SystemMessage import paths,
+      and llm.ainvoke() method signature via MCP before implementing.
+    </implementation_guidance>
+  </custom_node_pattern>
+
+  <tool_pattern>
+    <description>
+      Tools are @tool-decorated async (or sync) functions. LangGraph's ReAct agent calls
+      them based on LLM reasoning. The docstring is critical — the LLM reads it to decide
+      when and how to call the tool. Keep it clear, specific, and comprehensive.
+    </description>
+    <naming_rule>Tool functions: snake_case verb_object (e.g., fetch_web_content, validate_schema)</naming_rule>
+    <file_location>backend/app/tools/ — one file per domain (web_tools.py, db_tools.py, etc.)</file_location>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify @tool import path via MCP):
+        from [MCP-CONFIRMED-IMPORT] import tool
+
+        @tool
+        async def verb_object(param: type) -> str:
+            """[COMPREHENSIVE DOCSTRING]
+            What this tool does, when to use it, what it returns.
+            The LLM reads this to decide when and how to call the tool.
+            Include:
+            - Purpose and use cases
+            - Parameter descriptions and types
+            - Return format and examples
+            - What happens on failure
+            """
+            try:
+                # implementation
+                return result_string
+            except Exception as e:
+                return f"Tool failed: {str(e)}"  # NEVER raise from a tool
+
+      Critical rules that are stable regardless of API version:
+      - Docstring is mandatory and must be specific — LLM uses it for tool selection
+      - Always return a string — never raise an exception from a tool
+      - Use async def for any I/O (HTTP, DB, file), sync def for pure computation
+    </implementation_guidance>
+    <key_rules>
+      <rule>Docstrings are mandatory and must be specific — the LLM uses them to decide when to call the tool</rule>
+      <rule>Use async def for I/O tools (HTTP, database); sync def is fine for CPU-only tools</rule>
+      <rule>Never raise exceptions from tools — catch all errors and return a string instead</rule>
+      <rule>Import tools in nodes.py and pass them to create_react_agent(llm, tools=[...])</rule>
+    </key_rules>
+  </tool_pattern>
+
+  <system_prompt_engineering>
+    <principle name="role_then_responsibilities">
+      <structure>
+        1. "You are a [role] specialist."
+        2. Responsibilities: specific, concrete, action-oriented bullet points
+        3. NOT responsible for: explicit exclusions that prevent scope creep
+        4. Output format: exactly how the response must be structured
+      </structure>
+    </principle>
+
+    <principle name="no_vague_instructions">
+      <bad>"Be helpful and assist the user"</bad>
+      <good>"When a user asks about X, use tool Y. Return a JSON object with fields a, b, c."</good>
+    </principle>
+
+    <principle name="supervisor_routing_prompt">
+      <description>
+        Supervisor nodes decide routing. The prompt must be explicit about routing rules
+        and require a single-word output (agent name or FINISH) — any other format breaks routing.
+      </description>
+      <example><![CDATA[
+SUPERVISOR_PROMPT = """You are the orchestrator for [system name].
+
+Based on the conversation, decide what should happen next.
+Respond with EXACTLY ONE of the following — no other text, no punctuation:
+
+research_agent    — user needs information looked up
+summariser_agent  — user wants content summarised
+FINISH            — the task is complete and the last response fully addressed the request
+
+Routing rules:
+- research_agent: user asks a factual question or requests research
+- summariser_agent: user provides text and asks for a summary
+- FINISH: the previous agent's response fully satisfies the user's request
+
+This contract is non-negotiable. Any other output will cause a routing failure.
+"""
+      ]]></example>
+    </principle>
+
+    <principle name="temperature_by_task">
+      <guidance>
+        <task type="routing_classification">temperature=0.0 — must be deterministic</task>
+        <task type="factual_retrieval">temperature=0.1</task>
+        <task type="summarisation">temperature=0.3</task>
+        <task type="general_qa">temperature=0.7</task>
+        <task type="creative_generation">temperature=0.9</task>
+      </guidance>
+    </principle>
+  </system_prompt_engineering>
+
+  <design_principles>
+    <principle name="single_responsibility">
+      Each node/agent has one clearly scoped domain. If the system prompt says
+      "and also handles X" — that is a second node.
+    </principle>
+    <principle name="fail_gracefully">
+      Node functions that call external tools or APIs must catch exceptions and return
+      an AIMessage with the error string — never let an exception propagate out of a node.
+    </principle>
+    <principle name="testable_in_isolation">
+      Custom node functions are plain async functions — test them by calling directly
+      with a mock state dict and a patched get_llm(). Factory functions (create_X_agent())
+      allow easy substitution of a mock LLM in tests.
+    </principle>
+    <principle name="system_prompts_as_documentation">
+      A node's system prompt IS its documentation. Keep it up to date.
+      Never let the system prompt drift from the node's actual behaviour.
+    </principle>
+    <principle name="mcp_before_every_node">
+      Before implementing ANY node or tool, run the relevant MCP queries from this file's
+      docs_reference section. The node API, message classes, and tool decorator have
+      changed across LangGraph versions. Always use MCP-confirmed syntax.
+    </principle>
+  </design_principles>
+
+</agent_design_patterns>
+
+<!-- Made with Bob -->

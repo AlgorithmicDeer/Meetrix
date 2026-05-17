@@ -1,0 +1,144 @@
+<llm_setup>
+  <overview>
+    LangChain's ChatOllama is the LLM interface for this system. It wraps the local Ollama
+    server and implements LangChain's BaseChatModel interface, meaning it works with every
+    LangGraph agent pattern, tool binding, and chain without any custom provider code.
+    There is no custom BaseProvider or OllamaProvider class in this architecture.
+  </overview>
+
+  <docs_reference>
+    <url label="ChatOllama integration (parameters, examples, streaming)">
+      https://python.langchain.com/docs/integrations/chat/ollama/
+    </url>
+    <url label="LangChain Ollama package (PyPI)">
+      https://pypi.org/project/langchain-ollama/
+    </url>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+  </docs_reference>
+
+  <installation>
+    <package>langchain-ollama</package>
+    <command>pip install langchain-ollama</command>
+    <note>Do NOT install langchain-community for Ollama — langchain-ollama is the dedicated package.</note>
+  </installation>
+
+  <get_llm_factory>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <structure>
+      File: backend/app/llm.py
+      - Import ChatOllama from langchain_ollama [verify exact import path via MCP]
+      - def get_llm(model: str | None = None, temperature: float | None = None) -> ChatOllama:
+          """Return a configured ChatOllama instance. Use for every graph node."""
+          return ChatOllama(
+              model = model or settings.default_model,
+              base_url = settings.ollama_base_url,
+              temperature = temperature if temperature is not None else settings.llm_temperature,
+              [CONTEXT_WINDOW_PARAM] = settings.ollama_num_ctx,   [confirm param name via MCP]
+              [KEEP_ALIVE_PARAM] = settings.ollama_keep_alive,    [confirm param name via MCP]
+          )
+      This is the ONLY place in the codebase that constructs ChatOllama.
+    </structure>
+  </get_llm_factory>
+
+  <key_parameters>
+    <param name="model">Ollama model name — bare name only, no prefix (e.g., "llama3.2" not "ollama/llama3.2")</param>
+    <param name="base_url">Ollama server URL, default http://localhost:11434</param>
+    <param name="temperature">0.0 for deterministic routing/classification, 0.7 for creative tasks</param>
+    <param name="num_ctx">Context window in tokens. Ollama default 2048 is too small — use 4096+</param>
+    <param name="keep_alive">How long model stays loaded between calls ("5m", "1h", "-1" = forever)</param>
+  </key_parameters>
+
+  <hardware_requirements>
+    <tier name="low_end" ram="8GB">phi4:mini (3.8B), gemma2:2b — fast, ~4GB RAM</tier>
+    <tier name="mid_range" ram="16GB">llama3.2, qwen2.5:7b, mistral:7b — good quality</tier>
+    <tier name="high_end" ram="32GB">llama3.1:8b, qwen2.5:14b — high quality reasoning</tier>
+    <tier name="workstation" ram="64GB+">llama3.1:70b, qwen2.5:72b — best quality</tier>
+    <gpu_note>8GB VRAM = 7B model fully on-GPU (fast). Run `ollama ps` to see memory usage.</gpu_note>
+    <cold_start_note>First request loads model from disk: 30–90s. Use warm-up in lifespan (see 8_code_generation.xml).</cold_start_note>
+  </hardware_requirements>
+
+  <model_selection_guidance>
+    <guidance>All model names come from config.py Settings — never hardcode in graph/agent files.</guidance>
+    <task_model_mapping>
+      <mapping task="supervisor_routing">phi4:mini or gemma2:2b — fast, low RAM, sufficient for routing decisions</mapping>
+      <mapping task="reasoning_planning">llama3.1:8b or qwen2.5:14b (32GB+ RAM)</mapping>
+      <mapping task="general_qa_chat">llama3.2 or qwen2.5:7b — best quality/speed balance</mapping>
+      <mapping task="code_generation">qwen2.5-coder:7b — best free code model (2025)</mapping>
+      <mapping task="summarisation">llama3.2 or mistral:7b</mapping>
+      <mapping task="embeddings_rag">nomic-embed-text — use OllamaEmbeddings from langchain_ollama</mapping>
+    </task_model_mapping>
+  </model_selection_guidance>
+
+  <config_fields><![CDATA[
+# Add to backend/app/config.py Settings class:
+
+# Ollama / LLM connection
+ollama_base_url: str = "http://localhost:11434"
+default_model: str = "llama3.2"
+llm_temperature: float = 0.7
+
+# Per-agent model overrides (add one per agent from implementation.md)
+# supervisor_model: str = "phi4:mini"
+# research_model: str = "llama3.2"
+
+# Ollama performance
+ollama_num_ctx: int = 4096       # Context window — increase for long conversations
+ollama_keep_alive: str = "5m"    # Keep model in memory between calls (-1 = forever)
+  ]]></config_fields>
+
+  <availability_check><![CDATA[
+# Use in main.py lifespan to verify Ollama is running before starting:
+import httpx
+
+async def check_ollama(base_url: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(base_url)
+            return r.status_code == 200
+    except Exception:
+        return False
+  ]]></availability_check>
+
+  <warm_up_guidance>
+    <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+    <pattern>
+      Add after the Ollama connectivity check in the lifespan startup block.
+      Invoke get_llm() with a minimal test message (e.g., content="ping").
+      Wrap in try/except — warm-up failure must log a warning but NOT prevent startup.
+      This prevents the 30-90s cold-start that users experience on the very first request.
+      Log success at INFO level: "Model pre-loaded: {settings.default_model}"
+    </pattern>
+  </warm_up_guidance>
+
+  <modelfile_pattern>
+    <description>
+      For agents that need specific parameters baked in, use Ollama Modelfiles.
+      This is optional — ChatOllama parameters (num_ctx, temperature, keep_alive) cover most cases.
+    </description>
+    <example><![CDATA[
+# ollama/modelfiles/research_agent.Modelfile
+FROM llama3.2
+
+SYSTEM """
+You are a research specialist. Your only purpose is to find and summarise factual information.
+You always cite your sources. You never speculate beyond the provided information.
+"""
+
+PARAMETER temperature 0.3
+PARAMETER num_predict 1024
+PARAMETER num_ctx 4096
+PARAMETER keep_alive 5m
+    ]]></example>
+    <build_command>ollama create research_agent -f ollama/modelfiles/research_agent.Modelfile</build_command>
+    <when_to_use>Use when the system prompt is large and stable. Passing system_prompt in ChatOllama messages is sufficient for most agents.</when_to_use>
+  </modelfile_pattern>
+
+  <error_handling>
+    <rule>If Ollama is not running, ChatOllama will throw a connection error on first call — check availability in lifespan and log a warning</rule>
+    <rule>Model not found: ChatOllama throws OllamaError — add `validate_model_on_init=False` to avoid startup failures (check availability separately)</rule>
+    <rule>Timeout: set `num_ctx` smaller or use a lighter model — LangChain default timeout is 60s which may be too short for large models</rule>
+  </error_handling>
+
+</llm_setup>
+
+<!-- Made with Bob -->

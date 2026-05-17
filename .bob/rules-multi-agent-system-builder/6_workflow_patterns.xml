@@ -1,0 +1,206 @@
+<workflow_patterns>
+  <overview>
+    LangGraph workflow patterns for multi-agent systems.
+    In LangGraph, "workflows" are graphs — StateGraph instances with nodes and edges.
+    This file covers the common patterns: sequential pipeline, parallel fan-out,
+    conditional routing, streaming, and long-running async tasks.
+    All patterns build on StateGraph and MemorySaver from 2_orchestration_core.xml.
+
+    CRITICAL: Code in this file shows STRUCTURAL PATTERNS only — not current syntax.
+    Always run MCP queries for the specific pattern before implementing.
+    LangGraph's Send API, streaming API, and routing API change across releases.
+  </overview>
+
+  <docs_reference>
+    <url label="LangGraph how-tos (all workflow patterns)">
+      https://langchain-ai.github.io/langgraph/how-tos/
+    </url>
+    <url label="LangGraph: parallel execution with Send API (map-reduce)">
+      https://langchain-ai.github.io/langgraph/how-tos/map-reduce/
+    </url>
+    <url label="LangGraph: streaming tokens and events">
+      https://langchain-ai.github.io/langgraph/how-tos/streaming-tokens/
+    </url>
+    <url label="LangGraph: subgraphs">
+      https://langchain-ai.github.io/langgraph/how-tos/subgraph/
+    </url>
+    <instruction>
+      Before generating workflow code, query MCP for the specific pattern you are implementing.
+      LangGraph's Send API, astream_events, and streaming APIs change across releases —
+      always verify current syntax from MCP before writing any workflow code.
+    </instruction>
+  </docs_reference>
+
+  <pattern name="sequential_pipeline">
+    <description>
+      Fixed sequence of nodes. Each node receives the full state (all messages accumulated
+      so far). Use for: multi-stage enrichment chains (fetch → validate → summarise).
+    </description>
+    <structure>START → node_a → node_b → node_c → END</structure>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify all method names and import paths via MCP):
+      - StateGraph([state_type]) — use MessagesState unless stages need additional fields
+      - add_node for each stage in the pipeline
+      - add_edge(START, "stage_a")
+      - add_edge("stage_a", "stage_b")
+      - add_edge("stage_b", END)
+      - compile(checkpointer=MemorySaver())
+
+      Call the compiled graph:
+        result = await graph.ainvoke(
+            input_state,
+            config={"configurable": {"thread_id": session_id}}  — verify structure via MCP
+        )
+    </implementation_guidance>
+  </pattern>
+
+  <pattern name="parallel_fan_out">
+    <description>
+      Multiple nodes run simultaneously on the same input using LangGraph's Send API.
+      An aggregator node collects all results. Use for independent sub-queries
+      that all contribute to the final answer.
+    </description>
+    <structure>START → dispatcher → [node_a || node_b || node_c] → aggregator → END</structure>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      The Send API is the LangGraph-specific mechanism for parallel execution.
+      MCP will provide the current import path for Send and the exact routing function signature.
+
+      Structural pattern (verify all types and method signatures via MCP):
+      1. State class needs an Annotated list field with an add reducer for collecting
+         results from parallel branches — verify Annotated/reducer pattern via MCP
+      2. Dispatcher function: returns list of Send(node_name, state_slice) — one per item
+         Verify: Send import path, constructor args via MCP
+      3. add_conditional_edges(START, dispatcher_fn, ["target_node"]) — verify signature via MCP
+      4. Target node executes in parallel for each Send
+      5. After parallel execution: aggregator node collects from the list field
+
+      For FIXED parallelism (known count, same operation): use asyncio.gather() inside a
+      single node instead — much simpler when you don't need the Send API:
+        results = await asyncio.gather(*[llm.ainvoke(msg) for msg in messages])
+    </implementation_guidance>
+  </pattern>
+
+  <pattern name="conditional_routing">
+    <description>
+      Route to different nodes based on state values set by a classifier node.
+      Use add_conditional_edges() for any branching logic.
+      The supervisor pattern (2_orchestration_core.xml) is a specialisation of this.
+    </description>
+    <structure>START → classifier → conditional_edge → [node_a | node_b | node_c] → END</structure>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (verify routing map format and method signatures via MCP):
+      1. State class: add a route_label field (set by classifier, read by routing function)
+      2. classifier_node: async function, calls LLM at temperature=0.0, extracts label
+         returns {"route_label": label_string}
+      3. route_fn: pure function, reads route_label from state, returns target node name string
+         Unknown labels: fall through to a default node (never crash on unexpected input)
+      4. add_conditional_edges("classifier", route_fn, routing_map_dict)
+         routing_map_dict maps each returned label string to its target node name
+      5. Each routed node has an add_edge back to END
+
+      All method signatures and the exact routing map format must be verified via MCP.
+    </implementation_guidance>
+  </pattern>
+
+  <pattern name="streaming">
+    <description>
+      Stream LLM tokens to the client as they are generated.
+      Use graph.astream_events() for token-level streaming in a Server-Sent Events endpoint.
+      Use graph.astream() for node-level streaming (complete node outputs).
+    </description>
+    <structure>FastAPI SSE endpoint → graph.astream_events() → client</structure>
+    <implementation_guidance>
+      CRITICAL: The streaming API changes frequently — query MCP before implementing.
+      CONDITIONAL: Run these queries ONLY if implementation.md requires a streaming endpoint.
+      Phase 0 Step 4 does NOT run these — they are not in the baseline batch:
+        search_docs_by_lang_chain("LangGraph astream_events streaming version v2 on_chat_model_stream current")
+        search_docs_by_lang_chain("FastAPI StreamingResponse Server-Sent Events async generator current")
+
+      Key facts (verify every one of these with MCP before implementing):
+      - Use graph.astream_events() not graph.astream() for token-level streaming
+      - version="v2" (v1 is deprecated — always use v2, but confirm parameter name via MCP)
+      - Filter events by event type string to extract token chunks
+        (the event type string "on_chat_model_stream" may change — verify via MCP)
+      - Chunk content is accessed via event data — verify exact access path via MCP
+      - Wrap in FastAPI StreamingResponse with media_type="text/event-stream"
+      - Send token chunks as SSE: f"data: {json.dumps({'token': chunk})}\n\n"
+      - Terminate stream with: "data: [DONE]\n\n"
+
+      MCP will confirm: exact event type names, chunk content access pattern,
+      and whether version="v2" is still the correct parameter for current LangGraph.
+    </implementation_guidance>
+    <note>Always use version="v2" in astream_events — v1 is deprecated in recent LangGraph versions. Confirm via MCP.</note>
+  </pattern>
+
+  <pattern name="long_running_async">
+    <description>
+      For workflows that take more than 10 seconds, return a task_id immediately
+      and let the client poll for the result. Use asyncio.create_task() to run
+      the graph in the background.
+    </description>
+    <implementation_guidance>
+      <mcp_note>Phase 0 Step 4 covers this — use confirmed results, do not re-query.</mcp_note>
+
+      Structural pattern (asyncio parts are stable — verify LangGraph invocation via MCP):
+      1. POST /tasks: generate task_id (uuid4), store {"status": "running"} in task store
+         Launch asyncio.create_task(run()) to start the background workflow
+      2. run() coroutine: calls graph.ainvoke() with session config — verify config structure
+         On success: update task store to {"status": "completed", "result": final_content}
+         On error: update task store to {"status": "failed", "error": str(e)}
+      3. GET /tasks/{task_id}: return current status and result from task store
+
+      In-memory task store (dict) is acceptable for development.
+      For production: use Redis or database-backed task tracking to survive restarts.
+    </implementation_guidance>
+    <api_endpoints_needed>
+      <endpoint>POST /api/v1/tasks → returns task_id and initial status "running"</endpoint>
+      <endpoint>GET /api/v1/tasks/{task_id} → returns status, result (if complete), error (if failed)</endpoint>
+    </api_endpoints_needed>
+  </pattern>
+
+  <workflow_selection_guide>
+    <guide>
+      <scenario>Requests need different specialists, chosen by an LLM at runtime</scenario>
+      <use>supervisor pattern (2_orchestration_core.xml)</use>
+    </guide>
+    <guide>
+      <scenario>Data must be enriched step-by-step (fetch → validate → summarise)</scenario>
+      <use>sequential_pipeline</use>
+    </guide>
+    <guide>
+      <scenario>Multiple independent sub-queries that can run simultaneously</scenario>
+      <use>parallel_fan_out with Send API, or asyncio.gather() in a single node</use>
+    </guide>
+    <guide>
+      <scenario>Different request types need different handlers (billing vs support)</scenario>
+      <use>conditional_routing with a classifier node</use>
+    </guide>
+    <guide>
+      <scenario>User needs to see tokens stream from the LLM in real-time</scenario>
+      <use>streaming with astream_events — MANDATORY MCP query for current API</use>
+    </guide>
+    <guide>
+      <scenario>Workflow takes more than 10 seconds</scenario>
+      <use>long_running_async with task polling</use>
+    </guide>
+  </workflow_selection_guide>
+
+  <best_practices>
+    <practice>All node functions are async — never call blocking I/O from inside a node.</practice>
+    <practice>Node functions return dict updates, not full state — LangGraph merges them via reducers.</practice>
+    <practice>Log the start and end of each graph invocation with the session_id (thread_id).</practice>
+    <practice>Set explicit timeouts on all Ollama calls — local LLM can take 120s+ on CPU hardware.</practice>
+    <practice>Graphs are composable — a sequential pipeline can call a subgraph at any node.</practice>
+    <practice>Never call graph.invoke() (sync) from inside a FastAPI async route — always use await graph.ainvoke().</practice>
+    <practice>Before implementing any LangGraph API call, run the relevant MCP query in this file — the API changes.</practice>
+  </best_practices>
+
+</workflow_patterns>
+
+<!-- Made with Bob -->

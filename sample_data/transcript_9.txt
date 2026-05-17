@@ -1,0 +1,46 @@
+Q3 Planning Workshop — May 14, 2026
+Attendees: Diana Ross, Sarah Chen, Marcus Johnson, Priya Patel, Alex Kim, Tom Wright, Lisa Nguyen, Raj Mehta
+
+[10:00] Diana Ross: Welcome everyone. We have two hours to lock in our Q3 direction. I want to leave here with clear OKRs, a confirmed hiring plan, and product priorities. Let's start with the product direction. Priya, you prepared the proposal.
+
+[10:05] Priya Patel: Thanks Diana. For Q3 I'm recommending three focus areas: first, completing the API v2 migration which is blocking three of our biggest enterprise clients; second, the search and discovery improvements which our data shows are the top user request; third, mobile performance — our iOS app crash rate is still 2.1% which is above our 1.5% SLA.
+
+[10:12] Sarah Chen: I fully support the API v2 push. We've been losing deals because of it. Tom, from an infrastructure standpoint, what do we need?
+
+[10:14] Tom Wright: We need to upgrade the load balancer config and add two more API nodes. I've already scoped it — three weeks of work, we can start immediately.
+
+[10:17] Diana Ross: Okay, so product direction for Q3 is confirmed: API v2, search improvements, mobile performance. Does anyone have concerns?
+
+[10:19] Alex Kim: No concerns, but I'd like to flag that the mobile crash rate work will need Lisa's design support for the revised error states.
+
+[10:21] Lisa Nguyen: I can take that on. I'll need the crash reports from Raj.
+
+[10:22] Raj Mehta: I'll share them this afternoon.
+
+[10:24] Diana Ross: Good. Hiring plan next. We have three open engineering reqs. Marcus, where are we on approvals?
+
+[10:26] Marcus Johnson: Finance signed off this morning. We're approved for all three hires: one backend senior, one frontend mid, one data engineer. Start dates targeting Q3 week 3.
+
+[10:29] Diana Ross: Excellent. The hiring plan is approved. Sarah, you're leading the backend hire process.
+
+[10:31] Sarah Chen: Confirmed. I'll post the JD by end of this week.
+
+[10:33] Diana Ross: Now OKRs. I've drafted these based on the planning docs. Let me go through them. Objective 1: Ship API v2 to GA by August 15. Key result: zero breaking changes reported in first 30 days. Alex, is that achievable?
+
+[10:36] Alex Kim: It's tight but yes, if we start the migration guides now.
+
+[10:38] Diana Ross: Objective 2: Improve search NPS by 15 points. Priya, baseline is 32, target is 47.
+
+[10:40] Priya Patel: Agreed, that's ambitious but the work Raj has been doing on indexing makes it realistic.
+
+[10:42] Diana Ross: Objective 3: Reduce mobile crash rate below 1.5%. Lisa and Alex own this.
+
+[10:44] Lisa Nguyen: We accept it.
+
+[10:45] Diana Ross: All three OKRs are set and agreed. Final action items: each team lead cascades goals to their team by this Friday. Sarah posts backend JD by end of week. Raj shares crash reports with Lisa today. Tom starts infra scoping for API nodes tomorrow.
+
+[10:58] Diana Ross: Any final questions?
+
+[10:59] Marcus Johnson: None from me. This was productive.
+
+[11:00] Diana Ross: Great work everyone. Let's go build something.

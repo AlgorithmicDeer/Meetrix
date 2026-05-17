@@ -1,0 +1,278 @@
+<troubleshooting>
+  <overview>
+    Common failure modes encountered during and after code generation.
+    For each issue: symptom, root cause, and exact fix.
+    Reference this file when the generated system fails to start or behaves unexpectedly.
+    Stack: FastAPI + LangGraph + ChatOllama (langchain-ollama).
+  </overview>
+
+  <category name="ollama_connectivity">
+    <issue id="OL-1">
+      <symptom>FastAPI starts but /health returns {"status": "degraded", "ollama": "unreachable"}</symptom>
+      <cause>Ollama is not running or is listening on a different port than OLLAMA_BASE_URL</cause>
+      <fix>
+        <step>Run: ollama serve</step>
+        <step>Verify: curl http://localhost:11434 returns "Ollama is running"</step>
+        <step>If using a non-default port, update OLLAMA_BASE_URL in backend/.env</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-2">
+      <symptom>Graph node fails with "model not found" or ollama.ResponseError: model not found</symptom>
+      <cause>The model referenced in config has not been pulled from Ollama</cause>
+      <fix>
+        <step>Run: ollama list — to see all downloaded models</step>
+        <step>Run: ollama pull MODEL_NAME — for every model used in config.py</step>
+        <step>Check DEFAULT_MODEL and per-agent model variables in backend/.env match exactly</step>
+        <step>Model names are case-sensitive. "Llama3.2" != "llama3.2"</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-3">
+      <symptom>Agent responses are very slow or requests time out</symptom>
+      <cause>Model is too large for available RAM/VRAM; Ollama is swapping to disk</cause>
+      <fix>
+        <step>Switch to a smaller model: phi4:mini (3.8B) or gemma2:2b for routing/classification</step>
+        <step>Run: ollama ps — to see which models are loaded and their memory usage</step>
+        <step>Run: ollama stop MODEL_NAME — to unload unused models and free memory</step>
+        <step>Hardware guide: 8GB RAM → max 4B params; 16GB → max 8B; 32GB → max 14B</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-4">
+      <symptom>First request takes 30–90 seconds, subsequent requests are normal speed</symptom>
+      <cause>Model cold-start: Ollama loads the model from disk into RAM/VRAM on first use</cause>
+      <fix>
+        <step>This is expected behaviour — not a bug</step>
+        <step>Add model warm-up in lifespan startup (see 2_orchestration_core.xml fastapi_integration)</step>
+        <step>Set OLLAMA_KEEP_ALIVE=5m in .env to keep the model loaded between requests</step>
+        <step>Set OLLAMA_KEEP_ALIVE=-1 on a dev machine to keep it loaded indefinitely</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-5">
+      <symptom>ollama serve fails with "address already in use" or "listen tcp 127.0.0.1:11434: bind: address already in use"</symptom>
+      <cause>Ollama Desktop app is running alongside ollama serve — both use port 11434</cause>
+      <fix>
+        <step>If you have the Ollama Desktop app installed, it already runs the server</step>
+        <step>Do NOT run ollama serve when the Desktop app is open</step>
+        <step>Check: curl http://localhost:11434 — if it returns "Ollama is running", you are already set</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-6">
+      <symptom>Agent responses are truncated mid-sentence, or context from earlier in the conversation is lost</symptom>
+      <cause>Context window (num_ctx) is too small — tokens are being silently truncated</cause>
+      <fix>
+        <step>Increase OLLAMA_NUM_CTX in backend/.env (default 4096 — try 8192 or 16384)</step>
+        <step>Note: larger context uses more RAM. 8192 tokens ≈ 2× the RAM of 4096</step>
+        <step>Check Ollama logs for "context length exceeded" warnings</step>
+      </fix>
+    </issue>
+
+    <issue id="OL-7">
+      <symptom>ollama pull MODEL_NAME works but the model is not found when the agent calls it</symptom>
+      <cause>Model tag mismatch — pulled tag differs from the tag in config</cause>
+      <fix>
+        <step>Run: ollama list — to see exact model names including tags (e.g., llama3.2:latest)</step>
+        <step>Your config must use the exact same tag: "llama3.2" matches "llama3.2:latest"</step>
+        <step>"llama3.2:3b" and "llama3.2" are DIFFERENT — the tagged version must be pulled explicitly</step>
+      </fix>
+    </issue>
+  </category>
+
+  <category name="langgraph_errors">
+    <issue id="LG-1">
+      <symptom>ImportError: cannot import name 'ChatOllama' from 'langchain_community' or ModuleNotFoundError: No module named 'langchain_ollama'</symptom>
+      <cause>Wrong package installed. langchain-ollama is the dedicated package; langchain-community has an outdated Ollama integration.</cause>
+      <fix>
+        <step>Install the correct package: pip install langchain-ollama</step>
+        <step>Do NOT use langchain-community for Ollama</step>
+        <step>Correct import: from langchain_ollama import ChatOllama</step>
+        <step>Verify requirements.txt contains langchain-ollama, not langchain-community</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-2">
+      <symptom>ImportError: cannot import name 'MemorySaver' from 'langgraph.checkpoint' or similar import errors for LangGraph</symptom>
+      <cause>LangGraph package is not installed or the import path changed in a newer version</cause>
+      <fix>
+        <step>Install: pip install langgraph langchain-core</step>
+        <step>Verify import paths match the installed version: pip show langgraph</step>
+        <step>Current correct imports: from langgraph.checkpoint.memory import MemorySaver</step>
+        <step>Fetch the current API from: https://langchain-ai.github.io/langgraph/reference/</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-3">
+      <symptom>All users share the same conversation history — one user's messages appear in another's responses</symptom>
+      <cause>thread_id is missing from the config passed to graph.ainvoke() — MemorySaver uses a default shared thread</cause>
+      <fix>
+        <step>Always pass config={"configurable": {"thread_id": session_id}} to every ainvoke() call</step>
+        <step>Verify the session_id in the ChatRequest is unique per user session</step>
+        <step>Check routes.py — the config parameter must be present on every graph invocation</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-4">
+      <symptom>Session history is lost after restarting the server — users lose their conversation context</symptom>
+      <cause>MemorySaver stores state in process memory — it does not persist across restarts</cause>
+      <fix>
+        <step>This is expected for MemorySaver — it is a development-only store</step>
+        <step>For persistence: pip install langgraph-checkpoint-sqlite</step>
+        <step>Replace MemorySaver() with SqliteSaver.from_conn_string("checkpoints.db")</step>
+        <step>For multi-server deployment, use a Postgres-backed checkpointer</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-5">
+      <symptom>Supervisor routes to END immediately without calling any worker — conversation ends after one response</symptom>
+      <cause>Supervisor LLM returned something other than a registered worker name or "FINISH" — routing fell through to END</cause>
+      <fix>
+        <step>Check server logs — supervisor decision is logged at INFO level</step>
+        <step>Inspect the supervisor prompt: it must specify EXACT values the LLM should return</step>
+        <step>Use temperature=0.0 for the supervisor LLM — routing must be deterministic</step>
+        <step>Verify WORKER_AGENTS list matches the node names passed to add_node() exactly</step>
+        <step>Test the supervisor prompt manually: send a message and log the raw LLM response</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-6">
+      <symptom>ValueError: Node 'agent_name' is not reachable or GraphRecursionError: Recursion limit reached</symptom>
+      <cause>Graph edges are misconfigured — a node has no outgoing edge, or workers loop back to supervisor without a FINISH condition</cause>
+      <fix>
+        <step>For unreachable node: every non-END node must have at least one outgoing edge (add_edge or add_conditional_edges)</step>
+        <step>For recursion limit: the supervisor is not routing to FINISH — verify the supervisor prompt's FINISH condition</step>
+        <step>Increase recursion limit temporarily for debugging: graph.ainvoke(..., config={"recursion_limit": 25})</step>
+        <step>Default recursion limit is 25 — increase only if multi-hop workflows legitimately need more steps</step>
+      </fix>
+    </issue>
+
+    <issue id="LG-7">
+      <symptom>TypeError: object Graph is not callable or AttributeError: 'CompiledStateGraph' has no attribute X</symptom>
+      <cause>Mixing up the uncompiled builder with the compiled graph, or calling sync methods in an async context</cause>
+      <fix>
+        <step>Always call builder.compile() before using the graph — store the compiled result in app.state.graph</step>
+        <step>Use ainvoke() not invoke() inside async FastAPI routes</step>
+        <step>Use astream_events() not stream_events() for streaming</step>
+      </fix>
+    </issue>
+  </category>
+
+  <category name="fastapi_startup">
+    <issue id="FA-1">
+      <symptom>uvicorn fails with: Address already in use (port 8000)</symptom>
+      <cause>Another process is already using port 8000</cause>
+      <fix>
+        <step>Find the process: lsof -i :8000 (macOS/Linux) or netstat -ano | findstr :8000 (Windows)</step>
+        <step>Kill it, or start uvicorn on a different port: uvicorn app.main:app --port 8001</step>
+        <step>Update the frontend API base URL to match if port changes</step>
+      </fix>
+    </issue>
+
+    <issue id="FA-2">
+      <symptom>FastAPI starts but graph is not compiled — AttributeError: 'State' object has no attribute 'graph'</symptom>
+      <cause>build_graph() was not called in the lifespan function, or app.state.graph was not set</cause>
+      <fix>
+        <step>Open backend/app/main.py and find the lifespan function</step>
+        <step>Verify: app.state.graph = build_graph() is present in the lifespan startup block</step>
+        <step>Verify build_graph is imported: from app.graph.builder import build_graph</step>
+      </fix>
+    </issue>
+
+    <issue id="FA-3">
+      <symptom>ImportError or ModuleNotFoundError on startup</symptom>
+      <cause>Python virtual environment not activated, or dependencies not installed</cause>
+      <fix>
+        <step>Check Docker container is running: docker compose ps</step>
+        <step>View container logs: docker compose logs backend</step>
+        <step>If a package is missing: add it to backend/requirements.txt and run docker compose up --build</step>
+        <step>Do NOT install packages manually inside the container — they will be lost on restart</step>
+        <step>Verify requirements.txt is being copied in the Dockerfile before source code</step>
+      </fix>
+    </issue>
+
+    <issue id="FA-4">
+      <symptom>pydantic_settings.env_settings.EnvSettingsError or settings fail to load</symptom>
+      <cause>backend/.env file is missing or has incorrect variable names</cause>
+      <fix>
+        <step>Copy the example: cp backend/.env.example backend/.env</step>
+        <step>Verify variable names in .env match the field names in Settings class (case-insensitive)</step>
+        <step>Remove any surrounding quotes from values in .env: OLLAMA_BASE_URL=http://... (no quotes)</step>
+        <step>Verify pydantic-settings version: pip show pydantic-settings (must be >= 2.0.0)</step>
+      </fix>
+    </issue>
+  </category>
+
+  <category name="pydantic_validation">
+    <issue id="PV-1">
+      <symptom>422 Unprocessable Entity on POST /api/v1/chat with validation error details</symptom>
+      <cause>Request body does not match the ChatRequest Pydantic schema</cause>
+      <fix>
+        <step>Read the 422 response body — it lists exactly which field failed and why</step>
+        <step>Ensure session_id and message fields are present and non-empty strings</step>
+        <step>Content-Type header must be application/json</step>
+        <step>Valid minimal request: {"session_id": "test-1", "message": "hello"}</step>
+      </fix>
+    </issue>
+  </category>
+
+  <category name="cors_and_frontend">
+    <issue id="CF-1">
+      <symptom>Browser console: CORS error "No 'Access-Control-Allow-Origin' header"</symptom>
+      <cause>Frontend origin is not in FastAPI CORS allow_origins list</cause>
+      <fix>
+        <step>Open backend/app/main.py and find app.add_middleware(CORSMiddleware, ...)</step>
+        <step>Add the frontend dev server URL: allow_origins=["http://localhost:5173"]</step>
+        <step>For development only: allow_origins=["*"] is acceptable but remove before production</step>
+      </fix>
+    </issue>
+  </category>
+
+  <category name="environment_and_setup">
+    <issue id="ES-1">
+      <symptom>setup.sh or start.sh fails with "No such file or directory" errors</symptom>
+      <cause>Script called from wrong directory (not project root)</cause>
+      <fix>
+        <step>Ensure Docker Desktop (or Docker Engine) is installed and running</step>
+        <step>From the project root: docker compose up --build</step>
+        <step>If backend fails to start: check docker compose logs backend for the actual error</step>
+        <step>If frontend fails: check docker compose logs frontend</step>
+      </fix>
+    </issue>
+
+    <issue id="ES-2">
+      <symptom>docker: command not found or Cannot connect to the Docker daemon</symptom>
+      <cause>Docker is not installed or Docker Desktop is not running</cause>
+      <fix>
+        <step>Install Docker Desktop from https://docs.docker.com/get-docker/</step>
+        <step>Start Docker Desktop and wait for it to finish starting (whale icon in taskbar)</step>
+        <step>Verify: docker --version should print a version number</step>
+        <step>Then retry: docker compose up --build from the project root</step>
+      </fix>
+    </issue>
+
+    <issue id="ES-3">
+      <symptom>.gitignore is missing and .env file is tracked by git</symptom>
+      <cause>Project initialised without a .gitignore</cause>
+      <fix>
+        <step>Create .gitignore at project root with at minimum: .env, __pycache__/, .venv/, *.pyc</step>
+        <step>If .env was already committed: git rm --cached backend/.env, then commit the removal</step>
+        <step>Rotate any secrets that were committed immediately</step>
+      </fix>
+    </issue>
+  </category>
+
+  <quick_diagnostics>
+    <description>Run these checks in order when something is broken — covers 90% of issues.</description>
+    <check order="1">curl http://localhost:11434 → should return "Ollama is running"</check>
+    <check order="2">GET http://localhost:8000/api/v1/health → shows Ollama status</check>
+    <check order="3">Check uvicorn terminal output for ERROR or WARNING log lines</check>
+    <check order="4">Run ollama list → verify all models from implementation.md are present</check>
+    <check order="5">python -c "from app.config import settings; print(settings.ollama_base_url)" → verifies .env loading</check>
+    <check order="6">python -c "from app.graph.builder import build_graph; print(build_graph())" → verifies graph compiles</check>
+  </quick_diagnostics>
+
+</troubleshooting>
+
+<!-- Made with Bob -->
