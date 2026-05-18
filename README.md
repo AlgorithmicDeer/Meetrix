@@ -319,7 +319,7 @@ meetrix/
 
 ## IBM BOB Hackathon
 
-> Built at the **IBM BOB Hackathon 2026** using Claude Code with custom Bob modes.
+> Built at the **IBM BOB Hackathon 2026** using ibm bob with custom Bob modes.
 
 ### What We Built
 
